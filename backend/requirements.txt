@@ -4,3 +4,4 @@ python-multipart==0.0.20
 pymupdf==1.25.5
 pytest==8.3.5
 httpx==0.28.1
+rapidocr-onnxruntime==1.4.4

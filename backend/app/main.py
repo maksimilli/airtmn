@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 import fitz
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 from app.parameters import DEFINITIONS, normalize
@@ -43,6 +43,12 @@ with db() as c:
       kind TEXT NOT NULL, conditions TEXT NOT NULL, page INTEGER, evidence TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS parameter_search ON parameters(component_id,code,kind,value);
     ''')
+    columns = {row['name'] for row in c.execute('PRAGMA table_info(parameters)')}
+    if 'source' not in columns:
+        c.execute("ALTER TABLE parameters ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+        c.execute("UPDATE parameters SET source='text' WHERE evidence<>''")
+    if 'confidence' not in columns:
+        c.execute('ALTER TABLE parameters ADD COLUMN confidence REAL')
 
 
 class Parameter(BaseModel):
@@ -53,12 +59,16 @@ class Parameter(BaseModel):
     conditions: str = ''
     page: int | None = Field(default=None, ge=1)
     evidence: str = ''
+    source: Literal['text', 'ocr', 'manual'] = 'manual'
+    confidence: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
 
     @model_validator(mode='after')
     def normalize_value(self):
         self.value, self.unit = normalize(self.code, self.value, self.unit)
         if not math.isfinite(self.value):
             raise ValueError('Значение слишком большое')
+        if self.source != 'ocr':
+            self.confidence = None
         return self
 
 
@@ -74,6 +84,12 @@ class Component(BaseModel):
 @app.get('/api/health')
 def health():
     return {'status': 'ok'}
+
+
+@app.get('/api/ocr/status')
+def ocr_status():
+    from app.ocr import status
+    return status()
 
 
 @app.get('/api/parameter-definitions')
@@ -163,8 +179,8 @@ def save_component(component: Component, component_id: int | None = None):
         except sqlite3.IntegrityError:
             raise HTTPException(409, 'Компонент этого производителя уже существует')
         for p in component.parameters:
-            c.execute('INSERT INTO parameters(component_id,code,value,unit,kind,conditions,page,evidence) VALUES(?,?,?,?,?,?,?,?)',
-                      (component_id, p.code, p.value, p.unit, p.kind, p.conditions, p.page, p.evidence))
+            c.execute('INSERT INTO parameters(component_id,code,value,unit,kind,conditions,page,evidence,source,confidence) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                      (component_id, p.code, p.value, p.unit, p.kind, p.conditions, p.page, p.evidence, p.source, p.confidence))
         return {'id': component_id}
 
 
@@ -189,8 +205,8 @@ def document(document_id: str):
 
 
 @app.post('/api/import')
-async def import_pdf(file: UploadFile = File(...)):
-    content = await file.read(20 * 1024 * 1024 + 1)
+def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always', 'off'] = Form('auto')):
+    content = file.file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(413, 'Максимальный размер PDF — 20 МБ')
     try:
@@ -201,15 +217,18 @@ async def import_pdf(file: UploadFile = File(...)):
     except (RuntimeError, ValueError):
         raise HTTPException(422, 'Не удалось прочитать PDF')
     from app.extraction import extract
-    with pdf:
-        extracted = extract(pdf)
+    from app.ocr import prepare_document
+    with pdf, prepare_document(pdf, ocr_mode) as (prepared, records, ocr_info, ocr_warnings):
+        extracted = extract(prepared, records)
     pages = extracted.pop('pages')
-    warnings = extracted.pop('extraction_warnings')
+    warnings = extracted.pop('extraction_warnings') + ocr_warnings
+    if ocr_info['pages']:
+        warnings.append('OCR выполнен для страниц: ' + ', '.join(map(str, ocr_info['pages'])) + '. Проверьте по оригиналу модель, единицы и десятичные точки.')
     warnings.append('Проверьте обозначение компонента, предельные значения и условия измерения перед сохранением.')
     if len(extracted['variants']) > 1:
         warnings.append('Документ содержит несколько моделей: выберите нужную модель. Напряжение зависит от модели.')
     if not any(t.strip() for t in pages):
-        warnings.append('Текст не найден: сканированные PDF требуют OCR, который пока не подключён.')
+        warnings.append('Текст не найден. Включите OCR и проверьте читаемость скана; пустые страницы не содержат данных.')
     if not extracted['parameters']:
         warnings.append('Характеристики не удалось извлечь. Заполните их вручную.')
     digest = hashlib.sha256(content).hexdigest()
@@ -217,7 +236,7 @@ async def import_pdf(file: UploadFile = File(...)):
         duplicate = c.execute('SELECT 1 FROM documents WHERE id=?', (digest,)).fetchone() is not None
         c.execute('INSERT OR IGNORE INTO documents VALUES(?,?)', (digest, Path(file.filename or 'datasheet.pdf').name))
     (DATA / (digest + '.pdf')).write_bytes(content)
-    return dict(document_id=digest, duplicate=duplicate, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:6000])
+    return dict(document_id=digest, duplicate=duplicate, ocr=ocr_info, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:6000])
 
 # A bundled frontend allows Windows users to run without Node.js.
 from fastapi.staticfiles import StaticFiles

@@ -20,11 +20,8 @@ exit /b 1
 :created
 if not exist ".venv-windows\Scripts\python.exe" goto failed
 :run
-if exist ".venv-windows\installed.ok" goto start
-echo Installing dependencies. Internet access is required.
-".venv-windows\Scripts\python.exe" -m pip install -r backend\requirements.txt
+".venv-windows\Scripts\python.exe" install_dependencies.py
 if errorlevel 1 goto failed
-echo installed>".venv-windows\installed.ok"
 :start
 ".venv-windows\Scripts\python.exe" launch_windows.py
 if errorlevel 1 goto failed
