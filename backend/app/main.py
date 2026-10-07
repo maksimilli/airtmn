@@ -118,27 +118,24 @@ async def import_pdf(file: UploadFile = File(...)):
             raise HTTPException(422, 'Нужен PDF без пароля, не более 200 страниц')
     except (RuntimeError, ValueError):
         raise HTTPException(422, 'Не удалось прочитать PDF')
-    parameters = []
-    pages = []
-    # Conservative first parser: only explicit symbols with one value and unit on a line.
-    pattern = re.compile(r'\b(VRRM|IF\s*\(AV\)|IF_AV)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(mA|A|mV|V)\b', re.I)
+    from app.extraction import extract
     with pdf:
-        for number, page in enumerate(pdf, 1):
-            text = page.get_text()
-            pages.append(text)
-            for line in text.splitlines():
-                for match in pattern.finditer(line):
-                    symbol, value, unit = match.groups()
-                    code = 'VRRM' if symbol.upper() == 'VRRM' else 'IF_AV'
-                    base = 'V' if code == 'VRRM' else 'A'
-                    if unit.upper().endswith(base):
-                        parameters.append({'code':code, 'value':float(value.replace(',', '.')) / (1000 if unit.lower().startswith('m') else 1), 'unit':base, 'kind':'max', 'conditions':'', 'page':number, 'evidence':line, 'needs_review':True})
+        extracted = extract(pdf)
+    pages = extracted.pop('pages')
+    warnings = extracted.pop('extraction_warnings')
+    warnings.append('Проверьте обозначение компонента, предельные значения и условия измерения перед сохранением.')
+    if len(extracted['variants']) > 1:
+        warnings.append('Документ содержит несколько моделей: выберите нужную модель. Напряжение зависит от модели.')
+    if not any(t.strip() for t in pages):
+        warnings.append('Текст не найден: сканированные PDF требуют OCR, который пока не подключён.')
+    if not extracted['parameters']:
+        warnings.append('VRRM и IF(AV) не удалось извлечь. Заполните их вручную.')
     digest = hashlib.sha256(content).hexdigest()
     with db() as c:
         duplicate = c.execute('SELECT 1 FROM documents WHERE id=?', (digest,)).fetchone() is not None
         c.execute('INSERT OR IGNORE INTO documents VALUES(?,?)', (digest, Path(file.filename or 'datasheet.pdf').name))
     (DATA / (digest + '.pdf')).write_bytes(content)
-    return {'document_id':digest, 'duplicate':duplicate, 'name':'', 'manufacturer':'', 'package':'', 'parameters':parameters, 'warnings':['Проверьте обозначение компонента, предельные значения и условия измерения перед сохранением.'] + (['Текст не найден: сканированные PDF требуют OCR, который пока не подключён.'] if not any(t.strip() for t in pages) else []) + (['Поддерживаются только явно записанные VRRM и IF(AV). Остальные параметры заполните вручную.'] if not parameters else []), 'text_preview':'\n'.join(pages)[:6000]}
+    return dict(document_id=digest, duplicate=duplicate, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:6000])
 
 # A bundled frontend allows Windows users to run without Node.js.
 from fastapi.staticfiles import StaticFiles
