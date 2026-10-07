@@ -71,7 +71,7 @@ def test_unknown_type_warns_and_sparse_text_avoids_ocr(client,monkeypatch):
     assert any('Тип компонента' in w for w in result['warnings'])
 
 
-def test_documents_stats_export_delete_and_invalid_categories(client):
+def test_documents_stats_delete_and_invalid_categories(client):
     result=client.post('/api/import',files={'file':('family.pdf',family_pdf())}).json()
     payload=result['variants'][0]|{'document_id':result['document_id']}
     payload['manufacturer']='=SUM(A1:A2)'
@@ -85,9 +85,7 @@ def test_documents_stats_export_delete_and_invalid_categories(client):
     categories=client.get('/api/categories').json()
     assert len(categories)==10 and categories[0]['count']==1
     assert len(client.get('/api/parameter-definitions?category=resistor').json())==4
-    exported=client.get('/api/components/export.csv?category=diode')
-    assert exported.status_code==200 and "'=SUM(A1:A2)" in exported.text
-    assert '1N4001' in exported.text and exported.content.startswith(b'\xef\xbb\xbf')
+    assert client.get('/api/components/export.csv?category=diode').status_code != 200
     assert client.get('/api/components?category=invalid').status_code==422
     assert client.post('/api/components',json={'name':'BAD','category':'resistor','parameters':[{'code':'VF','value':1,'unit':'V'}]}).status_code==422
     assert client.delete('/api/components/'+str(identity)).status_code==204

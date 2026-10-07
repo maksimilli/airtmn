@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { parseDecimal } from "./decimal";
+import { emptyFilter, readColumns, serializeFilters } from "./catalog";
+import type { Filter } from "./catalog";
+import { ColumnPicker, FilterRow } from "./CatalogControls";
 import { Icon } from "./icons";
 import { ApiError, blank, kinds, numberText, request, symbol } from "./model";
 import type {
@@ -14,22 +17,6 @@ import type {
 } from "./model";
 import "./style.css";
 
-type Filter = {
-  code: string;
-  kind: Kind;
-  unit: string;
-  min: string;
-  max: string;
-  conditions: string;
-};
-const emptyFilter = (): Filter => ({
-  code: "",
-  kind: "max",
-  unit: "V",
-  min: "",
-  max: "",
-  conditions: "",
-});
 const routeNow = () => location.hash.slice(1) || "/overview";
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 function SourceBadge({ p }: { p: Param }) {
@@ -71,7 +58,17 @@ function App() {
   const [q, setQ] = useState(""),
     [manufacturer, setManufacturer] = useState(""),
     [packageName, setPackageName] = useState(""),
-    [filter, setFilter] = useState<Filter>(emptyFilter);
+    [filters, setFilters] = useState<Filter[]>([]);
+  const [columnPreferences, setColumnPreferences] = useState<
+    Record<string, string[]>
+  >(() => {
+    try {
+      return readColumns(localStorage.getItem("catalog.columns.v1"));
+    } catch {
+      return {};
+    }
+  });
+  const [columnStorageError, setColumnStorageError] = useState(false);
   const [draft, setDraft] = useState<Component | null>(null),
     [selected, setSelected] = useState<Component | null>(null),
     [variants, setVariants] = useState<Component[]>([]);
@@ -96,6 +93,23 @@ function App() {
       file: File;
     } | null>(null),
     [dragging, setDragging] = useState(false);
+  const [overviewAction, setOverviewAction] = useState<"catalog" | "import">(
+    "catalog",
+  );
+  function chooseCategory(action: "catalog" | "import") {
+    setOverviewAction(action);
+    document
+      .getElementById("category-choices")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  const [searchLoading, setSearchLoading] = useState(false),
+    [appliedSearch, setAppliedSearch] = useState("");
+  const searchSignature = JSON.stringify([
+    q,
+    manufacturer,
+    packageName,
+    filters.map(({ id, ...filter }) => filter),
+  ]);
   const inputRef = useRef<HTMLInputElement>(null),
     listRequest = useRef(0);
   const parts = route.split("/"),
@@ -107,6 +121,24 @@ function App() {
       routeCategory || draft?.category || selected?.category || "diode",
     category = categories.find((c) => c.code === categoryCode);
   const definition = (code: string) => definitions.find((d) => d.code === code);
+  const visibleColumns = (
+    columnPreferences[categoryCode] ??
+    category?.columns ??
+    []
+  ).filter((code) => !category?.codes.length || category.codes.includes(code));
+  function changeColumns(codes?: string[]) {
+    const next = { ...columnPreferences };
+    if (codes) next[categoryCode] = codes;
+    else delete next[categoryCode];
+    setColumnPreferences(next);
+    try {
+      localStorage.setItem("catalog.columns.v1", JSON.stringify(next));
+      setColumnStorageError(false);
+    } catch {
+      setColumnStorageError(true);
+    }
+  }
+
   const fieldsFor = (code: string) => {
     const c = categories.find((c) => c.code === code);
     return c?.codes.length
@@ -191,31 +223,28 @@ function App() {
   }, [dirty]);
   async function load(code: string, reset = false) {
     const current = ++listRequest.current;
+    setSearchLoading(true);
     try {
       const query = new URLSearchParams({ category: code });
       if (!reset) {
         query.set("q", q);
         query.set("manufacturer", manufacturer);
         query.set("package", packageName);
-        if (filter.code) {
-          query.set("parameter_code", filter.code);
-          query.set("parameter_kind", filter.kind);
-          query.set("parameter_unit", filter.unit);
-          if (filter.min.trim())
-            query.set("parameter_min", String(parseDecimal(filter.min)));
-          if (filter.max.trim())
-            query.set("parameter_max", String(parseDecimal(filter.max)));
-          if (filter.conditions.trim())
-            query.set("conditions", filter.conditions.trim());
-        }
+        if (filters.length)
+          query.set("filters", JSON.stringify(serializeFilters(filters)));
       }
       const found = await request("/api/components?" + query);
       if (current === listRequest.current) {
         setItems(found);
+        setAppliedSearch(
+          reset ? JSON.stringify(["", "", "", []]) : searchSignature,
+        );
         setError("");
       }
     } catch (e) {
       if (current === listRequest.current) setError(errorText(e));
+    } finally {
+      if (current === listRequest.current) setSearchLoading(false);
     }
   }
   useEffect(() => {
@@ -229,7 +258,7 @@ function App() {
       setQ("");
       setManufacturer("");
       setPackageName("");
-      setFilter(emptyFilter());
+      setFilters([]);
       void load(parts[2] || "diode", true);
     }
     if (["overview", "documents", "help", "compare"].includes(page)) {
@@ -459,13 +488,13 @@ function App() {
     documentLink = (id: string, n = 1) => "/api/documents/" + id + "#page=" + n;
   const title =
     page === "overview"
-      ? "Обзор библиотеки"
+      ? "Главная"
       : page === "catalog"
         ? category?.label
         : page === "documents"
           ? "Документы"
           : page === "import"
-            ? "Импорт Datasheet"
+            ? "Добавить компонент из PDF"
             : page === "new"
               ? "Новый компонент"
               : page === "edit"
@@ -490,12 +519,27 @@ function App() {
         <table>
           <thead>
             <tr>
-              {!compact && <th className="check-cell">Выбор</th>}
+              {!compact && (
+                <th
+                  className="check-cell"
+                  title="Отметьте до четырёх компонентов для сравнения"
+                >
+                  Сравнить
+                </th>
+              )}
               <th>Компонент</th>
               <th>Производитель / корпус</th>
               {!compact &&
-                (category?.columns || []).map((code) => (
-                  <th key={code}>{symbol(code)}</th>
+                visibleColumns.map((code) => (
+                  <th key={code} title={definition(code)?.label}>
+                    <span>{definition(code)?.label || code}</span>
+                    <small>
+                      {symbol(code)} ·{" "}
+                      {definition(code)?.display_unit === "1"
+                        ? "безразмерная"
+                        : definition(code)?.display_unit}
+                    </small>
+                  </th>
                 ))}
               <th>Документ</th>
               <th />
@@ -530,7 +574,7 @@ function App() {
                   <small>{c.package || "Корпус не указан"}</small>
                 </td>
                 {!compact &&
-                  (category?.columns || []).map((code) => {
+                  visibleColumns.map((code) => {
                     const values = c.parameters.filter((p) => p.code === code);
                     return (
                       <td key={code}>
@@ -575,6 +619,7 @@ function App() {
                   <button
                     className="icon-button"
                     aria-label={"Открыть " + c.name}
+                    title="Открыть карточку"
                     onClick={() => navigate("/component/" + c.id)}
                   >
                     <Icon name="arrow" />
@@ -590,6 +635,7 @@ function App() {
 
   const editor = draft && (
     <div
+      id="component-editor"
       className={"editor-layout" + (draft.document_id ? " with-preview" : "")}
     >
       <form className="panel editor" onSubmit={save}>
@@ -1009,7 +1055,7 @@ function App() {
             onClick={() => navigate("/overview")}
           >
             <Icon name="grid" />
-            Обзор библиотеки
+            Главная
           </button>
           <div className="nav-caption">КАТАЛОГ</div>
           {[...new Set(categories.map((c) => c.group))].map((group) => (
@@ -1102,9 +1148,9 @@ function App() {
               <h1>{title || "Загрузка…"}</h1>
               <p>
                 {page === "overview"
-                  ? "Характеристики, документация и поиск — в одном рабочем пространстве."
+                  ? "Выберите категорию ниже: найдите нужный компонент или добавьте новый из PDF."
                   : page === "catalog"
-                    ? "Подберите компонент по характеристикам и проверьте документацию."
+                    ? "Найдите компонент с помощью фильтров. Нажмите на название, чтобы открыть карточку."
                     : page === "import"
                       ? "Загрузите PDF: поля заполнятся автоматически, затем проверьте результат."
                       : page === "documents"
@@ -1120,13 +1166,6 @@ function App() {
             </div>
             {page === "catalog" && (
               <div className="actions">
-                <a
-                  className="button secondary"
-                  href={"/api/components/export.csv?category=" + categoryCode}
-                >
-                  <Icon name="download" size={17} />
-                  Экспорт раздела
-                </a>
                 <button
                   className="button secondary"
                   disabled={loading}
@@ -1149,10 +1188,10 @@ function App() {
               <button
                 className="button primary"
                 disabled={loading}
-                onClick={() => navigate("/import/diode")}
+                onClick={() => chooseCategory("import")}
               >
                 <Icon name="upload" size={17} />
-                Импорт Datasheet
+                Добавить компонент
               </button>
             )}
           </div>
@@ -1203,6 +1242,79 @@ function App() {
           )}
           {!loading && page === "overview" && (
             <>
+              <section className="welcome-guide" aria-label="С чего начать">
+                <div className="welcome-copy">
+                  <span className="eyebrow">С ЧЕГО НАЧАТЬ</span>
+                  <h2>Ваша библиотека электронных компонентов</h2>
+                  <p>
+                    Храните характеристики и даташиты вместе. Для начала
+                    выберите подходящую категорию.
+                  </p>
+                </div>
+                <div className="welcome-paths">
+                  <button onClick={() => chooseCategory("import")}>
+                    <span className="tile-icon">
+                      <Icon name="upload" />
+                    </span>
+                    <span>
+                      <b>Добавить компонент</b>
+                      <small>
+                        Категория → загрузить PDF → проверить → сохранить
+                      </small>
+                    </span>
+                    <Icon name="arrow" />
+                  </button>
+                  <button onClick={() => chooseCategory("catalog")}>
+                    <span className="tile-icon">
+                      <Icon name="search" />
+                    </span>
+                    <span>
+                      <b>Найти компонент</b>
+                      <small>
+                        Категория → задать фильтры → открыть карточку
+                      </small>
+                    </span>
+                    <Icon name="arrow" />
+                  </button>
+                </div>
+              </section>
+              <div className="section-heading" id="category-choices">
+                <div>
+                  <h2>Выберите категорию компонента</h2>
+                  <p>
+                    {overviewAction === "import"
+                      ? "Нажмите на категорию — откроется загрузка PDF для этого типа компонента."
+                      : "Нажмите на категорию — откроется каталог с поиском и фильтрами."}
+                  </p>
+                </div>
+                <span className="muted">{categories.length} разделов</span>
+              </div>
+              <div className="category-grid">
+                {categories.map((c) => (
+                  <button
+                    key={c.code}
+                    className="panel category-tile"
+                    onClick={() =>
+                      navigate("/" + overviewAction + "/" + c.code)
+                    }
+                  >
+                    <span className="tile-icon">
+                      <Icon name={c.icon} size={27} />
+                    </span>
+                    <div>
+                      <h3>{c.label}</h3>
+                      <p>{c.group}</p>
+                      <small>
+                        {c.count} компонентов ·{" "}
+                        {overviewAction === "import"
+                          ? "Добавить из PDF"
+                          : "Открыть каталог"}
+                      </small>
+                    </div>
+                    <Icon name="arrow" size={18} />
+                  </button>
+                ))}
+              </div>
               <div className="stats-grid">
                 {[
                   ["Компоненты", stats.components, "chip"],
@@ -1220,32 +1332,6 @@ function App() {
                   </div>
                 ))}
               </div>
-              <div className="section-heading">
-                <div>
-                  <h2>Категории компонентов</h2>
-                  <p>Выберите раздел для поиска и добавления компонентов.</p>
-                </div>
-                <span className="muted">{categories.length} разделов</span>
-              </div>
-              <div className="category-grid">
-                {categories.map((c) => (
-                  <button
-                    key={c.code}
-                    className="panel category-tile"
-                    onClick={() => navigate("/catalog/" + c.code)}
-                  >
-                    <span className="tile-icon">
-                      <Icon name={c.icon} size={27} />
-                    </span>
-                    <div>
-                      <h3>{c.label}</h3>
-                      <p>{c.group}</p>
-                      <small>{c.count} компонентов</small>
-                    </div>
-                    <Icon name="arrow" size={18} />
-                  </button>
-                ))}
-              </div>
               <div className="overview-bottom">
                 <section className="panel">
                   <div className="panel-heading">
@@ -1261,7 +1347,7 @@ function App() {
                       <p>Загрузите Datasheet или заполните карточку вручную.</p>
                       <button
                         className="button primary"
-                        onClick={() => navigate("/import/diode")}
+                        onClick={() => chooseCategory("import")}
                       >
                         Загрузить PDF
                         <Icon name="arrow" size={16} />
@@ -1297,6 +1383,18 @@ function App() {
           {!loading && page === "catalog" && category && (
             <>
               <section className="panel search-panel">
+                <div className="search-section-heading">
+                  <span className="step-tag">
+                    <Icon name="search" size={18} />
+                  </span>
+                  <div>
+                    <h2>Найдите нужный компонент</h2>
+                    <p>
+                      Поиск по названию, производителю, корпусу и
+                      характеристикам.
+                    </p>
+                  </div>
+                </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1313,8 +1411,12 @@ function App() {
                         onChange={(e) => setQ(e.target.value)}
                       />
                     </label>
-                    <button className="button primary" type="submit">
-                      Найти
+                    <button
+                      className="button primary"
+                      type="submit"
+                      disabled={searchLoading}
+                    >
+                      {searchLoading ? "Поиск…" : "Найти"}
                     </button>
                     <button
                       className="button secondary"
@@ -1323,166 +1425,136 @@ function App() {
                         setQ("");
                         setManufacturer("");
                         setPackageName("");
-                        setFilter(emptyFilter());
+                        setFilters([]);
                         void load(categoryCode, true);
                       }}
                     >
                       Сбросить
                     </button>
                   </div>
-                  <details className="advanced">
-                    <summary>
-                      <Icon name="settings" size={16} />
-                      Фильтры по характеристикам
-                      {filter.code && (
-                        <span className="badge blue">
-                          {symbol(filter.code)}
-                        </span>
-                      )}
-                    </summary>
-                    <div className="filter-grid">
-                      <label>
-                        Производитель
-                        <input
-                          value={manufacturer}
-                          onChange={(e) => setManufacturer(e.target.value)}
-                        />
-                      </label>
-                      <label>
-                        Корпус
-                        <input
-                          value={packageName}
-                          onChange={(e) => setPackageName(e.target.value)}
-                        />
-                      </label>
-                      <label>
-                        Характеристика
-                        <select
-                          aria-label="Характеристика"
-                          value={filter.code}
-                          onChange={(e) => {
-                            const d = definition(e.target.value);
-                            setFilter({
-                              ...emptyFilter(),
-                              code: e.target.value,
-                              unit: d?.display_unit || "V",
-                            });
-                          }}
-                        >
-                          <option value="">Не выбрана</option>
-                          {fieldsFor(categoryCode).map((d) => (
-                            <option key={d.code} value={d.code}>
-                              {symbol(d.code)} — {d.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {filter.code && (
-                        <>
-                          <label>
-                            Тип значения
-                            <select
-                              aria-label="Тип значения"
-                              value={filter.kind}
-                              onChange={(e) =>
-                                setFilter({
-                                  ...filter,
-                                  kind: e.target.value as Kind,
-                                })
-                              }
-                            >
-                              {Object.entries(kinds).map(([k, v]) => (
-                                <option value={k} key={k}>
-                                  {v}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Единица
-                            <select
-                              aria-label="Единица фильтра"
-                              value={filter.unit}
-                              onChange={(e) =>
-                                setFilter({
-                                  ...filter,
-                                  unit: e.target.value,
-                                  min: "",
-                                  max: "",
-                                })
-                              }
-                            >
-                              {Object.keys(
-                                definition(filter.code)?.units || {},
-                              ).map((u) => (
-                                <option value={u} key={u}>
-                                  {u === "1" ? "Безразмерная" : u}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <div className="range">
-                            <label>
-                              От
-                              <input
-                                inputMode="decimal"
-                                value={filter.min}
-                                onChange={(e) =>
-                                  setFilter({ ...filter, min: e.target.value })
-                                }
-                              />
-                            </label>
-                            <label>
-                              До
-                              <input
-                                inputMode="decimal"
-                                value={filter.max}
-                                onChange={(e) =>
-                                  setFilter({ ...filter, max: e.target.value })
-                                }
-                              />
-                            </label>
-                          </div>
-                          <label className="wide">
-                            Условия содержат
-                            <input
-                              placeholder="Например, TA = 25 C"
-                              value={filter.conditions}
-                              onChange={(e) =>
-                                setFilter({
-                                  ...filter,
-                                  conditions: e.target.value,
-                                })
-                              }
-                            />
-                          </label>
-                          <p className="filter-note">
-                            Границы, тип и условия проверяются для одного
-                            значения.
-                          </p>
-                        </>
-                      )}
+                  <div className="basic-filters">
+                    <label>
+                      Производитель
+                      <input
+                        placeholder="Любой производитель"
+                        value={manufacturer}
+                        onChange={(e) => setManufacturer(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Корпус
+                      <input
+                        placeholder="Например, SOT-23"
+                        value={packageName}
+                        onChange={(e) => setPackageName(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="filters-heading">
+                    <div>
+                      <h3>Фильтры по характеристикам</h3>
+                      <p>
+                        {filters.length
+                          ? "Компонент должен соответствовать всем условиям одновременно."
+                          : "Добавьте условия, чтобы подобрать компонент по нужным значениям."}
+                      </p>
                     </div>
-                  </details>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={filters.length >= 20}
+                      onClick={() => setFilters([...filters, emptyFilter()])}
+                    >
+                      <Icon name="plus" size={16} />
+                      Добавить фильтр
+                    </button>
+                  </div>
+                  {filters.map((filter, index) => (
+                    <FilterRow
+                      key={filter.id}
+                      filter={filter}
+                      index={index}
+                      definitions={fieldsFor(categoryCode)}
+                      onChange={(updated) =>
+                        setFilters(
+                          filters.map((f) =>
+                            f.id === filter.id ? updated : f,
+                          ),
+                        )
+                      }
+                      onRemove={() =>
+                        setFilters(filters.filter((f) => f.id !== filter.id))
+                      }
+                    />
+                  ))}
+                  {filters.length > 0 && (
+                    <div className="filter-apply">
+                      <span className="muted">
+                        Условия: {filters.length} · десятичные числа: 0,5 или
+                        0.5
+                      </span>
+                      <button
+                        className="button primary"
+                        type="submit"
+                        disabled={searchLoading}
+                      >
+                        {searchLoading ? "Поиск…" : "Применить фильтры"}
+                      </button>
+                    </div>
+                  )}
                 </form>
               </section>
-              <section className="panel catalog-panel">
+              <section
+                className="panel catalog-panel"
+                aria-busy={searchLoading}
+              >
+                {appliedSearch && appliedSearch !== searchSignature && (
+                  <p className="search-pending" role="status">
+                    Условия изменены. Нажмите «Найти» или «Применить фильтры»,
+                    чтобы обновить результаты.
+                  </p>
+                )}
                 <div className="panel-heading">
                   <div>
-                    <h2>Компоненты</h2>
-                    <span className="muted">Найдено: {items.length}</span>
+                    <h2>Результаты поиска</h2>
+                    <span className="muted" role="status">
+                      Найдено: {items.length} · откройте карточку нажатием на
+                      название
+                    </span>
                   </div>
                   <span className="badge blue">
                     <Icon name={category.icon} size={15} />
                     {category.label}
                   </span>
                 </div>
+                <div className="table-controls">
+                  <span className="table-hint">
+                    Отметьте компоненты для сравнения. Широкую таблицу
+                    прокручивайте вправо.
+                  </span>
+                  <ColumnPicker
+                    definitions={fieldsFor(categoryCode)}
+                    columns={visibleColumns}
+                    onChange={changeColumns}
+                    onReset={() => changeColumns()}
+                  />
+                </div>
+                {columnStorageError && (
+                  <p role="status" className="storage-note">
+                    Браузер запретил сохранение настроек. Выбор столбцов
+                    действует до закрытия страницы.
+                  </p>
+                )}
                 {items.length ? (
                   <ComponentTable rows={items} />
                 ) : (
                   <div className="empty">
                     <Icon name={category.icon} size={40} />
-                    <h3>Компоненты не найдены</h3>
+                    <h3>
+                      {category.count
+                        ? "По вашим условиям ничего не найдено"
+                        : "В этом разделе пока нет компонентов"}
+                    </h3>
                     <p>
                       Измените поиск или добавьте первый компонент в этот
                       раздел.
@@ -1649,6 +1721,28 @@ function App() {
                   будет заблокирован.
                 </div>
               </section>
+              {draft && (
+                <div className="next-step-notice" role="status">
+                  <Icon name="check" size={18} />
+                  <div>
+                    <b>PDF обработан. Теперь проверьте карточку.</b>
+                    <p>
+                      Сверьте модель и характеристики с документом, затем
+                      нажмите «Сохранить проверенный компонент».
+                    </p>
+                  </div>
+                  <button
+                    className="button primary"
+                    onClick={() =>
+                      document
+                        .getElementById("component-editor")
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                  >
+                    Перейти к проверке
+                  </button>
+                </div>
+              )}
               {editor}
             </>
           )}
@@ -1837,7 +1931,7 @@ function App() {
                 </label>
                 <button
                   className="button primary"
-                  onClick={() => navigate("/import/diode")}
+                  onClick={() => chooseCategory("import")}
                 >
                   <Icon name="upload" size={17} />
                   Загрузить PDF
@@ -2076,7 +2170,7 @@ function App() {
                   [
                     "search",
                     "Поиск и сравнение",
-                    "Ищите по названию, производителю, корпусу и одной характеристике. Отметьте компоненты в таблице для сравнения. Учитывайте тип и условия измерения.",
+                    "Ищите по названию, производителю, корпусу и нескольким характеристикам одновременно. Нажмите «Добавить фильтр», задайте границы и примените фильтры. В «Столбцы таблицы» выберите нужные характеристики. Отметьте компоненты в таблице для сравнения. Учитывайте тип и условия измерения.",
                   ],
                   [
                     "folder",

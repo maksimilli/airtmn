@@ -190,3 +190,54 @@ def test_startup_preserves_existing_database_and_files(tmp_path, monkeypatch):
         assert row['parameters'][0]['source']=='text' and row['parameters'][0]['confidence'] is None
         assert client.get('/api/documents/legacy').content==b'%PDF legacy preserved file'
         assert len(client.get('/api/components?min_current=0.5').json())==1
+
+
+def test_multiple_filters_intersect_and_normalize_units(client):
+    for name, voltage, current in [('BOTH', 100, 500), ('VOLTAGE', 100, 100), ('CURRENT', 20, 500)]:
+        assert client.post('/api/components', json={
+            'name': name, 'manufacturer': 'Example', 'package': 'DO-41', 'parameters': [
+                {'code': 'VRRM', 'value': voltage, 'unit': 'V', 'kind': 'max'},
+                {'code': 'IF_AV', 'value': current, 'unit': 'mA', 'kind': 'typ'},
+            ]}).status_code == 201
+    import json
+    filters = [
+        {'code': 'VRRM', 'min': 80, 'unit': 'V', 'kind': 'max'},
+        {'code': 'IF_AV', 'min': 0.4, 'max': 0.6, 'unit': 'A'},
+    ]
+    params = {'filters': json.dumps(filters), 'category': 'diode', 'manufacturer': 'Exam', 'package': 'DO'}
+    result = client.get('/api/components', params=params)
+    assert result.status_code == 200
+    assert [c['name'] for c in result.json()] == ['BOTH']
+    filters[1]['kind'] = 'max'
+    assert client.get('/api/components', params=params | {'filters': json.dumps(filters)}).json() == []
+    assert len(client.get('/api/components', params={'filters': '[]'}).json()) == 3
+    assert client.get('/api/components', params=params | {'category': 'resistor'}).json() == []
+
+
+def test_multiple_filters_keep_range_kind_and_conditions_on_same_value(client):
+    import json
+    assert client.post('/api/components', json={'name': 'TEST', 'parameters': [
+        {'code': 'VRRM', 'value': 100, 'unit': 'V', 'kind': 'max'},
+        {'code': 'IR', 'value': 5, 'unit': 'µA', 'kind': 'max', 'conditions': '25 C'},
+        {'code': 'IR', 'value': 50, 'unit': 'µA', 'kind': 'max', 'conditions': '125 C'},
+        {'code': 'IR', 'value': 1, 'unit': 'µA', 'kind': 'typ', 'conditions': '125 C'},
+    ]}).status_code == 201
+    filters = [{'code': 'VRRM', 'min': 80}, {'code': 'IR', 'unit': 'µA', 'max': 10,
+                                            'kind': 'max', 'conditions': '125 C'}]
+    assert client.get('/api/components', params={'filters': json.dumps(filters)}).json() == []
+    filters[1]['conditions'] = '25 C'
+    assert len(client.get('/api/components', params={'filters': json.dumps(filters)}).json()) == 1
+    # Two separate conditions can require two measurements of the same characteristic.
+    filters.append({'code': 'IR', 'unit': 'µA', 'min': 40, 'kind': 'max', 'conditions': '125 C'})
+    assert len(client.get('/api/components', params={'filters': json.dumps(filters)}).json()) == 1
+
+
+@pytest.mark.parametrize('filters', [
+    'not json', '{}', '[null]', '[{"code":"UNKNOWN"}]', '[{"code":"IR","unit":"V"}]',
+    '[{"code":"IR","min":2,"max":1}]', '[{"code":"IR","min":-1}]',
+    '[{"code":"IR","max":Infinity}]', '[{"code":"IR","kind":"wrong"}]',
+    '[{"code":"IR","min":"abc"}]', '[{"code":"IR","extra":1}]',
+    '[' + ','.join(['{"code":"IR"}'] * 21) + ']',
+])
+def test_multiple_filters_reject_invalid_input(client, filters):
+    assert client.get('/api/components', params={'filters': filters}).status_code == 422

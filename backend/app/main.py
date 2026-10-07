@@ -1,6 +1,7 @@
 import hashlib
 import os
 import math
+import json
 from contextlib import contextmanager
 from typing import Literal
 import sqlite3
@@ -9,7 +10,7 @@ from pathlib import Path
 import fitz
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from app.parameters import DEFINITIONS, normalize
 from app.categories import CATEGORIES, category_codes
 
@@ -138,12 +139,23 @@ def component_dict(connection, row):
     return item
 
 
+class ParameterFilter(BaseModel):
+    model_config = {'extra': 'forbid'}
+    code: str
+    kind: Literal['min', 'typ', 'max', 'unspecified'] | None = None
+    unit: str | None = None
+    min: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    conditions: str = Field(default='', max_length=500)
+
+
 @app.get('/api/components')
 def components(q: str = '', min_voltage: float | None = None, min_current: float | None = None,
                manufacturer: str = '', package: str = '', parameter_code: str | None = None,
                parameter_kind: Literal['min', 'typ', 'max', 'unspecified'] = 'max',
                parameter_min: float | None = None, parameter_max: float | None = None,
-               parameter_unit: str | None = None, conditions: str = '', category: str | None = None):
+               parameter_unit: str | None = None, conditions: str = '', category: str | None = None,
+               filters: str | None = None):
     sql = 'SELECT * FROM components WHERE name LIKE ? AND manufacturer LIKE ? AND package LIKE ?'
     args = ['%' + q + '%', '%' + manufacturer + '%', '%' + package + '%']
     if category is not None:
@@ -157,56 +169,55 @@ def components(q: str = '', min_voltage: float | None = None, min_current: float
                 raise HTTPException(422, 'Граница фильтра должна быть конечным неотрицательным числом')
             sql += " AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=? AND p.kind='max' AND p.value>=?)"
             args.extend([code, threshold])
+    active_filters = []
+    if filters is not None:
+        try:
+            raw = json.loads(filters)
+            if not isinstance(raw, list) or len(raw) > 20:
+                raise ValueError('Добавьте не более 20 фильтров')
+            active_filters = TypeAdapter(list[ParameterFilter]).validate_python(raw)
+        except (ValueError, ValidationError) as error:
+            raise HTTPException(422, f'Некорректные фильтры: {error}')
     if parameter_code:
-        definition = DEFINITIONS.get(parameter_code)
+        try:
+            active_filters.append(ParameterFilter(code=parameter_code, kind=parameter_kind,
+                unit=parameter_unit, min=parameter_min, max=parameter_max, conditions=conditions))
+        except ValidationError as error:
+            raise HTTPException(422, str(error))
+    elif parameter_min is not None or parameter_max is not None or conditions:
+        raise HTTPException(422, 'Выберите характеристику для дополнительного фильтра')
+    for item in active_filters:
+        definition = DEFINITIONS.get(item.code)
         if not definition:
             raise HTTPException(422, 'Неизвестная характеристика')
         try:
-            normalize(parameter_code, 0, parameter_unit or definition['unit'])
-            lower = normalize(parameter_code, parameter_min, parameter_unit or definition['unit'])[0] if parameter_min is not None else None
-            upper = normalize(parameter_code, parameter_max, parameter_unit or definition['unit'])[0] if parameter_max is not None else None
+            unit = item.unit or definition['unit']
+            normalize(item.code, 0, unit)
+            lower = normalize(item.code, item.min, unit)[0] if item.min is not None else None
+            upper = normalize(item.code, item.max, unit)[0] if item.max is not None else None
         except ValueError as error:
             raise HTTPException(422, str(error))
         if any(v is not None and (not math.isfinite(v) or v < 0) for v in [lower, upper]):
             raise HTTPException(422, 'Граница фильтра должна быть конечным неотрицательным числом')
         if lower is not None and upper is not None and lower > upper:
             raise HTTPException(422, 'Значение «от» не должно превышать «до»')
-        clause = ' AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=? AND p.kind=?'
-        args.extend([parameter_code, parameter_kind])
+        clause = ' AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=?'
+        args.append(item.code)
+        if item.kind is not None:
+            clause += ' AND p.kind=?'
+            args.append(item.kind)
         if lower is not None:
             clause += ' AND p.value>=?'
             args.append(lower)
         if upper is not None:
             clause += ' AND p.value<=?'
             args.append(upper)
-        if conditions:
+        if item.conditions:
             clause += ' AND p.conditions LIKE ?'
-            args.append('%' + conditions + '%')
+            args.append('%' + item.conditions + '%')
         sql += clause + ')'
-    elif parameter_min is not None or parameter_max is not None or conditions:
-        raise HTTPException(422, 'Выберите характеристику для дополнительного фильтра')
     with db() as c:
         return [component_dict(c, row) for row in c.execute(sql + ' ORDER BY name', args)]
-
-
-@app.get('/api/components/export.csv')
-def export_components(category: str | None = None):
-    import csv
-    from io import StringIO
-    from fastapi.responses import Response
-    rows = components(category=category)
-    buffer = StringIO(newline='')
-    writer = csv.writer(buffer, delimiter=';')
-    writer.writerow(['Категория','Обозначение','Производитель','Корпус','Параметр','Значение','Единица','Тип','Условия','Страница','Источник'])
-    def safe(value):
-        text = str(value if value is not None else '')
-        return "'" + text if text.lstrip().startswith(('=', '+', '-', '@')) else text
-    for row in rows:
-        for p in row['parameters'] or [{}]:
-            writer.writerow([safe(value) for value in [CATEGORIES[row['category']]['label'],row['name'],row['manufacturer'],row['package'],
-                p.get('code',''),str(p.get('value','')).replace('.',','),p.get('unit',''),p.get('kind',''),p.get('conditions',''),p.get('page',''),p.get('source','')]])
-    return Response(content=('\ufeff'+buffer.getvalue()).encode('utf-8'), media_type='text/csv',
-                    headers={'Content-Disposition':'attachment; filename="components.csv"'})
 
 
 @app.get('/api/components/{component_id}')
