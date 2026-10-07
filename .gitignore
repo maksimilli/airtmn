@@ -6,4 +6,5 @@ dist/
 data/
 *.egg-info/
 .venv-windows/
+.venv-windows-312/
 :memory:.ses

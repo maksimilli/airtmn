@@ -90,13 +90,14 @@ def test_windows_dependency_refresh_and_failed_install(tmp_path):
     spec=importlib.util.spec_from_file_location('installer',Path(__file__).resolve().parents[2]/'install_dependencies.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     (tmp_path/'backend').mkdir();requirements=tmp_path/'backend'/'requirements.txt';requirements.write_text('first')
+    environment=tmp_path/'.venv-windows-312'
     calls=[]
     def successful(command):calls.append(command);return SimpleNamespace(returncode=0)
-    assert module.install(tmp_path,successful)==0
-    assert module.install(tmp_path,successful)==0 and len(calls)==1
+    assert module.install(tmp_path,successful,environment)==0
+    assert module.install(tmp_path,successful,environment)==0 and len(calls)==1
     requirements.write_text('second')
-    assert module.install(tmp_path,successful)==0 and len(calls)==2
-    marker=tmp_path/'.venv-windows'/'installed.ok';previous=marker.read_text()
+    assert module.install(tmp_path,successful,environment)==0 and len(calls)==2
+    marker=environment/'installed.ok';previous=marker.read_text()
     requirements.write_text('third')
-    assert module.install(tmp_path,lambda command:SimpleNamespace(returncode=1))==1
+    assert module.install(tmp_path,lambda command:SimpleNamespace(returncode=1),environment)==1
     assert marker.read_text()==previous

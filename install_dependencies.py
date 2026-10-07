@@ -5,9 +5,12 @@ import sys
 from pathlib import Path
 
 
-def install(root, runner=subprocess.run):
+def install(root, runner=subprocess.run, environment=None):
+    if sys.version_info[:2] != (3, 12) or sys.maxsize <= 2**32:
+        print('OCR requires Python 3.12 (64-bit). Run START_WINDOWS.bat to select it.', flush=True)
+        return 1
     requirements = root / 'backend' / 'requirements.txt'
-    marker = root / '.venv-windows' / 'installed.ok'
+    marker = (environment or root / '.venv-windows') / 'installed.ok'
     fingerprint = hashlib.sha256(requirements.read_bytes() + str(sys.version_info[:2]).encode()).hexdigest()
     if marker.exists() and marker.read_text().strip() == fingerprint:
         return 0
@@ -22,4 +25,4 @@ def install(root, runner=subprocess.run):
 
 
 if __name__ == '__main__':
-    sys.exit(install(Path(__file__).resolve().parent))
+    sys.exit(install(Path(__file__).resolve().parent, environment=Path(sys.prefix)))

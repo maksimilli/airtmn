@@ -2,31 +2,29 @@
 setlocal
 cd /d "%~dp0"
 echo Electronic components catalog
-if exist ".venv-windows\Scripts\python.exe" goto run
-py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)" >nul 2>&1
-if not errorlevel 1 (
-    py -3 -m venv .venv-windows
-    goto created
+if exist ".venv-windows\Scripts\python.exe" (
+    ".venv-windows\Scripts\python.exe" start_windows.py
+    goto finished
 )
-python -c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)" >nul 2>&1
+py -3 -c "import sys" >nul 2>&1
 if not errorlevel 1 (
-    python -m venv .venv-windows
-    goto created
+    py -3 start_windows.py
+    goto finished
 )
-echo Install Python 3.12 or newer from https://www.python.org/downloads/windows/
-echo Select "Add python.exe to PATH" during installation, then run this file again.
+python -c "import sys" >nul 2>&1
+if not errorlevel 1 (
+    python start_windows.py
+    goto finished
+)
+echo Install Python 3.12 using "Windows installer (64-bit)" from:
+echo https://www.python.org/downloads/release/python-31210/
+echo Keep "Python Launcher" selected, then run this file again.
 pause
 exit /b 1
-:created
-if not exist ".venv-windows\Scripts\python.exe" goto failed
-:run
-".venv-windows\Scripts\python.exe" install_dependencies.py
-if errorlevel 1 goto failed
-:start
-".venv-windows\Scripts\python.exe" launch_windows.py
+:finished
 if errorlevel 1 goto failed
 exit /b 0
 :failed
-echo Startup failed. Copy or photograph the error above and send it in chat.
+echo Startup failed. Read the instructions above or photograph the error and send it in chat.
 pause
 exit /b 1
