@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 from app.parameters import DEFINITIONS, normalize
+from app.categories import CATEGORIES, category_codes
 
 DATA = Path(os.getenv('CATALOG_DATA_DIR', 'data')).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
@@ -49,6 +50,12 @@ with db() as c:
         c.execute("UPDATE parameters SET source='text' WHERE evidence<>''")
     if 'confidence' not in columns:
         c.execute('ALTER TABLE parameters ADD COLUMN confidence REAL')
+    if 'category' not in {row['name'] for row in c.execute('PRAGMA table_info(components)')}:
+        c.execute("ALTER TABLE components ADD COLUMN category TEXT NOT NULL DEFAULT 'diode'")
+    document_columns = {row['name'] for row in c.execute('PRAGMA table_info(documents)')}
+    for column in ['pages', 'size']:
+        if column not in document_columns:
+            c.execute(f'ALTER TABLE documents ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
 
 
 class Parameter(BaseModel):
@@ -79,6 +86,15 @@ class Component(BaseModel):
     description: str = ''
     document_id: str | None = None
     parameters: list[Parameter] = []
+    category: str = 'diode'
+
+    @model_validator(mode='after')
+    def validate_category(self):
+        if self.category not in CATEGORIES:
+            raise ValueError('Неизвестная категория')
+        if any(p.code not in category_codes(self.category) for p in self.parameters):
+            raise ValueError('Характеристика не соответствует выбранной категории')
+        return self
 
 
 @app.get('/api/health')
@@ -93,8 +109,26 @@ def ocr_status():
 
 
 @app.get('/api/parameter-definitions')
-def parameter_definitions():
-    return [dict(code=code, **definition) for code, definition in DEFINITIONS.items()]
+def parameter_definitions(category: str = 'diode'):
+    if category not in CATEGORIES:
+        raise HTTPException(422, 'Неизвестная категория')
+    return [dict(code=code, **DEFINITIONS[code]) for code in category_codes(category)]
+
+
+@app.get('/api/categories')
+def categories():
+    with db() as c:
+        counts = dict(c.execute('SELECT category,COUNT(*) FROM components GROUP BY category').fetchall())
+    return [dict(code=code, **definition, count=counts.get(code, 0)) for code, definition in CATEGORIES.items()]
+
+
+@app.get('/api/stats')
+def stats():
+    with db() as c:
+        return dict(components=c.execute('SELECT COUNT(*) FROM components').fetchone()[0],
+                    documents=c.execute('SELECT COUNT(*) FROM documents').fetchone()[0],
+                    manufacturers=c.execute("SELECT COUNT(DISTINCT manufacturer) FROM components WHERE manufacturer<>''").fetchone()[0],
+                    parameters=c.execute('SELECT COUNT(*) FROM parameters').fetchone()[0])
 
 
 def component_dict(connection, row):
@@ -109,9 +143,14 @@ def components(q: str = '', min_voltage: float | None = None, min_current: float
                manufacturer: str = '', package: str = '', parameter_code: str | None = None,
                parameter_kind: Literal['min', 'typ', 'max', 'unspecified'] = 'max',
                parameter_min: float | None = None, parameter_max: float | None = None,
-               parameter_unit: str | None = None, conditions: str = ''):
+               parameter_unit: str | None = None, conditions: str = '', category: str | None = None):
     sql = 'SELECT * FROM components WHERE name LIKE ? AND manufacturer LIKE ? AND package LIKE ?'
     args = ['%' + q + '%', '%' + manufacturer + '%', '%' + package + '%']
+    if category is not None:
+        if category not in CATEGORIES:
+            raise HTTPException(422, 'Неизвестная категория')
+        sql += ' AND category=?'
+        args.append(category)
     for code, threshold in [('VRRM', min_voltage), ('IF_AV', min_current)]:
         if threshold is not None:
             if not math.isfinite(threshold) or threshold < 0:
@@ -150,6 +189,26 @@ def components(q: str = '', min_voltage: float | None = None, min_current: float
         return [component_dict(c, row) for row in c.execute(sql + ' ORDER BY name', args)]
 
 
+@app.get('/api/components/export.csv')
+def export_components(category: str | None = None):
+    import csv
+    from io import StringIO
+    from fastapi.responses import Response
+    rows = components(category=category)
+    buffer = StringIO(newline='')
+    writer = csv.writer(buffer, delimiter=';')
+    writer.writerow(['Категория','Обозначение','Производитель','Корпус','Параметр','Значение','Единица','Тип','Условия','Страница','Источник'])
+    def safe(value):
+        text = str(value if value is not None else '')
+        return "'" + text if text.lstrip().startswith(('=', '+', '-', '@')) else text
+    for row in rows:
+        for p in row['parameters'] or [{}]:
+            writer.writerow([safe(value) for value in [CATEGORIES[row['category']]['label'],row['name'],row['manufacturer'],row['package'],
+                p.get('code',''),str(p.get('value','')).replace('.',','),p.get('unit',''),p.get('kind',''),p.get('conditions',''),p.get('page',''),p.get('source','')]])
+    return Response(content=('\ufeff'+buffer.getvalue()).encode('utf-8'), media_type='text/csv',
+                    headers={'Content-Disposition':'attachment; filename="components.csv"'})
+
+
 @app.get('/api/components/{component_id}')
 def get_component(component_id: int):
     with db() as c:
@@ -168,13 +227,13 @@ def save_component(component: Component, component_id: int | None = None):
         if component.document_id and not c.execute('SELECT 1 FROM documents WHERE id=?', (component.document_id,)).fetchone():
             raise HTTPException(422, 'Документ не найден')
         values = (component.name.strip(), component.manufacturer.strip(), component.package.strip(),
-                  component.description, component.document_id)
+                  component.description, component.document_id, component.category)
         try:
             if component_id is None:
-                cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id) VALUES(?,?,?,?,?)', values)
+                cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id,category) VALUES(?,?,?,?,?,?)', values)
                 component_id = cursor.lastrowid
             else:
-                c.execute('UPDATE components SET name=?,manufacturer=?,package=?,description=?,document_id=? WHERE id=?', (*values, component_id))
+                c.execute('UPDATE components SET name=?,manufacturer=?,package=?,description=?,document_id=?,category=? WHERE id=?', (*values, component_id))
                 c.execute('DELETE FROM parameters WHERE component_id=?', (component_id,))
         except sqlite3.IntegrityError:
             raise HTTPException(409, 'Компонент этого производителя уже существует')
@@ -194,6 +253,21 @@ def update(component_id: int, component: Component):
     return save_component(component, component_id)
 
 
+@app.delete('/api/components/{component_id}', status_code=204)
+def delete_component(component_id: int):
+    with db() as c:
+        if not c.execute('DELETE FROM components WHERE id=?', (component_id,)).rowcount:
+            raise HTTPException(404, 'Компонент не найден')
+
+
+@app.get('/api/documents')
+def documents():
+    with db() as c:
+        return [dict(row) for row in c.execute('''SELECT d.*, COUNT(c.id) AS components_count
+            FROM documents d LEFT JOIN components c ON c.document_id=d.id
+            GROUP BY d.id ORDER BY d.rowid DESC''')]
+
+
 @app.get('/api/documents/{document_id}')
 def document(document_id: str):
     from fastapi.responses import FileResponse
@@ -204,8 +278,28 @@ def document(document_id: str):
     return FileResponse(DATA / (document_id + '.pdf'), media_type='application/pdf')
 
 
+@app.get('/api/documents/{document_id}/pages/{page_number}')
+def document_page(document_id: str, page_number: int):
+    from fastapi.responses import Response
+    with db() as c:
+        if not c.execute('SELECT 1 FROM documents WHERE id=?',(document_id,)).fetchone():
+            raise HTTPException(404,'Документ не найден')
+    try:
+        with fitz.open(DATA/(document_id+'.pdf')) as pdf:
+            if page_number<1 or page_number>len(pdf):
+                raise HTTPException(404,'Страница не найдена')
+            page=pdf[page_number-1]
+            scale=min(140/72,1800/max(page.rect.width,page.rect.height))
+            image=page.get_pixmap(matrix=fitz.Matrix(scale,scale),colorspace=fitz.csRGB,alpha=False).tobytes('png')
+        return Response(image,media_type='image/png',headers={'Cache-Control':'private, max-age=3600'})
+    except (RuntimeError,ValueError,OSError):
+        raise HTTPException(422,'Не удалось отобразить страницу PDF')
+
+
 @app.post('/api/import')
-def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always', 'off'] = Form('auto')):
+def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always', 'off'] = Form('auto'), category: str = Form('diode')):
+    if category not in CATEGORIES:
+        raise HTTPException(422, 'Неизвестная категория')
     content = file.file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(413, 'Максимальный размер PDF — 20 МБ')
@@ -218,10 +312,26 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
         raise HTTPException(422, 'Не удалось прочитать PDF')
     from app.extraction import extract
     from app.ocr import prepare_document
-    with pdf, prepare_document(pdf, ocr_mode) as (prepared, records, ocr_info, ocr_warnings):
-        extracted = extract(prepared, records)
+    from app.classification import detect_category
+    def check_category(pages):
+        detected = detect_category(pages)
+        if detected and category != 'other' and detected['category'] != category:
+            raise HTTPException(422, dict(code='category_mismatch', message=f"В документе распознан другой тип компонента: {detected['label']}. Выберите соответствующий раздел или другой PDF.",
+                                        expected_category=category, detected_category=detected['category'], detected_label=detected['label'], evidence=detected['evidence']))
+        return detected
+    page_count = len(pdf)
+    with pdf:
+        check_category([page.get_text() for page in pdf])
+        original = extract(pdf, category=category)
+        # Preserve the established digital-PDF path, including vector grids.
+        protected = {p['page'] for v in original['variants'] for p in v['parameters']} | {p['page'] for p in original['parameters']}
+        with prepare_document(pdf, ocr_mode, protected_pages=protected) as (prepared, records, ocr_info, ocr_warnings):
+            extracted = extract(prepared, records, category=category) if records else original
     pages = extracted.pop('pages')
+    detected = check_category(pages)
     warnings = extracted.pop('extraction_warnings') + ocr_warnings
+    if not detected:
+        warnings.append('Тип компонента не определён уверенно. Проверьте выбранную категорию по названию и описанию в PDF.')
     if ocr_info['pages']:
         warnings.append('OCR выполнен для страниц: ' + ', '.join(map(str, ocr_info['pages'])) + '. Проверьте по оригиналу модель, единицы и десятичные точки.')
     warnings.append('Проверьте обозначение компонента, предельные значения и условия измерения перед сохранением.')
@@ -234,9 +344,11 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
     digest = hashlib.sha256(content).hexdigest()
     with db() as c:
         duplicate = c.execute('SELECT 1 FROM documents WHERE id=?', (digest,)).fetchone() is not None
-        c.execute('INSERT OR IGNORE INTO documents VALUES(?,?)', (digest, Path(file.filename or 'datasheet.pdf').name))
+        c.execute('INSERT OR IGNORE INTO documents(id,filename,pages,size) VALUES(?,?,?,?)', (digest, Path(file.filename or 'datasheet.pdf').name, page_count, len(content)))
+        c.execute('UPDATE documents SET pages=?,size=? WHERE id=?', (page_count,len(content),digest))
     (DATA / (digest + '.pdf')).write_bytes(content)
-    return dict(document_id=digest, duplicate=duplicate, ocr=ocr_info, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:6000])
+    return dict(document_id=digest, duplicate=duplicate, ocr=ocr_info, category=category, detected_category=detected, filename=Path(file.filename or 'datasheet.pdf').name,
+                page_count=page_count, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:12000])
 
 # A bundled frontend allows Windows users to run without Node.js.
 from fastapi.staticfiles import StaticFiles

@@ -1,8 +1,9 @@
 """Conservative text and ruled-table extraction with physical cell provenance."""
 import re
-from app.parameters import DEFINITIONS, RATING_CODES, normalize, symbol_code
+from app.parameters import DEFINITIONS, RATING_CODES, ALIASES, normalize, symbol_code
+from app.categories import category_codes
 
-NUMBER = r'\d+(?:[.,]\d+)?'
+NUMBER = r'\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?'
 PART = re.compile(r'(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\d)[A-Z0-9]+(?:-[A-Z0-9]+)*', re.I)
 
 
@@ -32,6 +33,10 @@ def row_y(row):
 
 def midpoint(rect):
     return (rect[0] + rect[2]) / 2
+
+
+def header_text(value):
+    return re.sub(r'[^A-Z]', '', (value or '').upper())
 
 
 def infer_kind(description, heading, code):
@@ -69,7 +74,7 @@ def confidence_at(table, x, y, records):
     return min(scores) if scores else None
 
 
-def extract(pdf, ocr_records=None):
+def extract(pdf, ocr_records=None, category='diode'):
     ocr_records = ocr_records or {}
     pages = [page.get_text() for page in pdf]
     text = '\n'.join(pages)
@@ -79,6 +84,7 @@ def extract(pdf, ocr_records=None):
     case = re.search(r'Case:\s*([^\n,]+)', text, re.I)
     package = case.group(1).strip() if case else ''
     variants, common, warnings = {}, [], []
+    supported = set(category_codes(category))
     # A single explicitly titled device can receive min/typ/max table values.
     title_parts = PART.findall(first_page.splitlines()[0]) if first_page.splitlines() else []
     single_model = title_parts[0] if len(title_parts) == 1 else ''
@@ -89,26 +95,34 @@ def extract(pdf, ocr_records=None):
         except (RuntimeError, ValueError):
             tables = []
             warnings.append(f'Не удалось разобрать таблицы на странице {page_number}.')
+        if not tables:
+            try:
+                tables = page.find_tables(strategy='text',min_words_vertical=2,min_words_horizontal=1).tables
+                if any(any(header_text(v)=='SYMBOL' for v in row) for t in tables for row in t.extract()):
+                    warnings.append(f'Страница {page_number}: таблица определена по выравниванию текста; проверьте соответствие значений моделям.')
+            except (RuntimeError,ValueError):
+                tables=[]
         for table in tables:
             rows = table.extract()
             heading = ' '.join(cell or '' for row in rows[:2] for cell in row)
-            if not re.search(r'ratings|characteristics', heading, re.I):
-                continue
             header_index = next((i for i, row in enumerate(rows)
-                                 if any((v or '').strip().upper() == 'SYMBOL' for v in row)), None)
+                                 if any(header_text(v) == 'SYMBOL' for v in row)), None)
             if header_index is None:
                 continue
             header = rows[header_index]
-            symbol_index = next(i for i, v in enumerate(header) if (v or '').strip().upper() == 'SYMBOL')
-            unit_index = len(header) - 1
+            symbol_index = next(i for i, v in enumerate(header) if header_text(v) == 'SYMBOL')
+            unit_index = next((i for i,v in enumerate(header) if header_text(v) in {'UNIT','UNITS'}),len(header)-1)
             headers = table.rows[header_index].cells
-            columns = [(midpoint(headers[i]), v.strip(), None) for i, v in enumerate(header)
-                       if i > symbol_index and v and PART.fullmatch(v.strip()) and headers[i]]
+            columns = [(midpoint(headers[i]), re.sub(r'\s+','',v), None) for i, v in enumerate(header)
+                       if i > symbol_index and v and PART.fullmatch(re.sub(r'\s+','',v)) and headers[i] and i!=unit_index]
             # Explicit MIN/TYP/MAX headings override description-derived kinds.
             if not columns and single_model:
-                columns = [(midpoint(headers[i]), single_model, v.strip().lower().rstrip('.'))
+                columns = [(midpoint(headers[i]), single_model, header_text(v).lower())
                            for i, v in enumerate(header) if i > symbol_index and v
-                           and v.strip().lower().rstrip('.') in {'min', 'typ', 'max'} and headers[i]]
+                           and header_text(v) in {'MIN', 'TYP', 'MAX'} and headers[i]]
+                if not columns:
+                    columns = [(midpoint(headers[i]),single_model,None) for i,v in enumerate(header)
+                               if i>symbol_index and header_text(v) in {'VALUE','RATING','RATINGS'} and headers[i]]
             if not columns:
                 continue
             for row_index in range(header_index + 1, len(rows)):
@@ -119,12 +133,12 @@ def extract(pdf, ocr_records=None):
                 code = symbol_code(symbol)
                 description = cell_at(table, rows, midpoint(headers[0]), y) if headers[0] else ''
                 inferred_symbol = False
-                if code not in DEFINITIONS and page_number in ocr_records:
+                if code not in supported and page_number in ocr_records:
                     code = description_code(description)
                     inferred_symbol = code in DEFINITIONS
                     if inferred_symbol:
                         warnings.append(f'Страница {page_number}: символ {code} определён по описанию строки; проверьте по PDF.')
-                if code not in DEFINITIONS:
+                if code not in supported:
                     continue
                 unit = cell_at(table, rows, midpoint(headers[unit_index]), y) if headers[unit_index] else ''
                 condition_parts = []
@@ -173,8 +187,10 @@ def extract(pdf, ocr_records=None):
                         item['source'] = 'ocr'
                         item['confidence'] = min(score for score in scores if score is not None) if any(score is not None for score in scores) else None
                     variants.setdefault(name, []).append(item)
-        pattern = re.compile(r'\b(VRRM|VRMS|VDC|IF\s*\(AV\)|IF_AV|IFSM|VF|IR|CJ|PD|TRR)\s*[:=]?\s*('
-                             + NUMBER + r')\s*(µA|μA|uA|mA|A|mV|V|pF|nF|µF|μF|F|mW|W|ns|µs|μs|ms|s)\b', re.I)
+        symbols = sorted(supported | {alias for alias,code in ALIASES.items() if code in supported},key=len,reverse=True)
+        units = sorted({unit for code in supported for unit in DEFINITIONS[code]['units']} | {'uA','uF','uH','us','μA','μF','μH','ohm','mohm','kohm','Mohm'},key=len,reverse=True)
+        symbol_patterns = [r'\s*'.join(re.escape(char) for char in s) for s in symbols]
+        pattern = re.compile(r'(?<![\w])('+'|'.join(symbol_patterns)+r')\s*[:=]?\s*('+NUMBER+r')\s*('+'|'.join(re.escape(u) for u in units)+r')(?![\w])',re.I)
         for line in pages[page_number - 1].splitlines():
             for match in pattern.finditer(line):
                 symbol, value, unit = match.groups()

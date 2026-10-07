@@ -185,6 +185,7 @@ def test_startup_preserves_existing_database_and_files(tmp_path, monkeypatch):
     with TestClient(module.app) as client:
         row=client.get('/api/components/42').json()
         assert row['name']=='LEGACY' and row['description']=='Saved earlier'
+        assert row['category']=='diode'
         assert row['parameters'][0]['value']==.5 and row['parameters'][0]['id']==12
         assert row['parameters'][0]['source']=='text' and row['parameters'][0]['confidence'] is None
         assert client.get('/api/documents/legacy').content==b'%PDF legacy preserved file'

@@ -52,7 +52,7 @@ def recognize_page(original):
     page = document.new_page(width=pix.width / scale, height=pix.height / scale)
     records = []
     for box, text, confidence in result or []:
-        text = text.replace('μ', 'µ').replace('℃', 'C')
+        text = text.replace('μ', 'µ').replace('℃', 'C').replace('Ω','ohm').replace('Ω','ohm')
         text = text.encode('cp1252', errors='replace').decode('cp1252')
         rect = fitz.Rect(min(p[0] for p in box)/scale, min(p[1] for p in box)/scale,
                          max(p[0] for p in box)/scale, max(p[1] for p in box)/scale)
@@ -108,13 +108,13 @@ def recognize_page(original):
 
 
 @contextmanager
-def prepare_document(original, mode='auto'):
+def prepare_document(original, mode='auto', protected_pages=None):
     working = fitz.open()
     records, warnings, processed, skipped = {}, [], [], []
     attempted = 0
     try:
         for index, page in enumerate(original):
-            wanted = mode != 'off' and (mode == 'always' or needs_ocr(page))
+            wanted = mode != 'off' and (mode == 'always' or (index+1 not in (protected_pages or set()) and needs_ocr(page)))
             if wanted:
                 if attempted >= MAX_OCR_PAGES:
                     warnings.append(f'Страница {index+1}: лимит OCR — {MAX_OCR_PAGES} страниц за импорт. Разделите большой скан на части.')
