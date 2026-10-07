@@ -9,7 +9,6 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
     back: "M19 12H5 M10 7l-5 5 5 5",
     check: "M5 12l4 4L19 6",
     download: "M12 3v12 M7 10l5 5 5-5 M4 17v4h16v-4",
-    help: "M9 9a3 3 0 0 1 6 0c0 3-3 2-3 5 M12 18h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
     compare: "M4 3v18 M20 3v18 M4 8h6v8H4 M14 6h6v8h-6",
     edit: "M16 3l5 5-12 12-6 1 1-6z M13 6l5 5",
     trash: "M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15",

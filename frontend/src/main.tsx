@@ -93,15 +93,7 @@ function App() {
       file: File;
     } | null>(null),
     [dragging, setDragging] = useState(false);
-  const [overviewAction, setOverviewAction] = useState<"catalog" | "import">(
-    "catalog",
-  );
-  function chooseCategory(action: "catalog" | "import") {
-    setOverviewAction(action);
-    document
-      .getElementById("category-choices")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false),
     [appliedSearch, setAppliedSearch] = useState("");
   const searchSignature = JSON.stringify([
@@ -259,9 +251,10 @@ function App() {
       setManufacturer("");
       setPackageName("");
       setFilters([]);
+      setFiltersOpen(false);
       void load(parts[2] || "diode", true);
     }
-    if (["overview", "documents", "help", "compare"].includes(page)) {
+    if (["overview", "documents", "compare"].includes(page)) {
       setDraft(null);
       setSelected(null);
     }
@@ -488,7 +481,7 @@ function App() {
     documentLink = (id: string, n = 1) => "/api/documents/" + id + "#page=" + n;
   const title =
     page === "overview"
-      ? "Главная"
+      ? "Каталог компонентов"
       : page === "catalog"
         ? category?.label
         : page === "documents"
@@ -503,9 +496,7 @@ function App() {
                   ? selected?.name
                   : page === "compare"
                     ? "Сравнение компонентов"
-                    : page === "help"
-                      ? "Как работать с каталогом"
-                      : "Страница не найдена";
+                    : "Страница не найдена";
 
   function ComponentTable({
     rows,
@@ -1105,18 +1096,7 @@ function App() {
               <span className="nav-count">{compareIds.length}</span>
             )}
           </button>
-          <button
-            className={"nav-link " + (page === "help" ? "active" : "")}
-            onClick={() => navigate("/help")}
-          >
-            <Icon name="help" />
-            Справка
-          </button>
         </nav>
-        <div className="sidebar-footer">
-          <span className="status-dot" />
-          Локальная библиотека<small>Данные хранятся на вашем компьютере</small>
-        </div>
       </aside>
       <div className="main-shell">
         <header className="topbar">
@@ -1132,37 +1112,23 @@ function App() {
               Библиотека <span>/</span> <b>{title || "Загрузка…"}</b>
             </span>
           </div>
-          <span className="topbar-status">
-            <span className="status-dot" />
-            {loading ? "Подключение…" : "Рабочее пространство"}
-          </span>
         </header>
         <main>
           <div className="page-heading">
             <div>
-              <span className="eyebrow">
-                {page === "catalog"
-                  ? category?.group
-                  : "КАТАЛОГ ЭЛЕКТРОННЫХ КОМПОНЕНТОВ"}
-              </span>
               <h1>{title || "Загрузка…"}</h1>
-              <p>
-                {page === "overview"
-                  ? "Выберите категорию ниже: найдите нужный компонент или добавьте новый из PDF."
-                  : page === "catalog"
-                    ? "Найдите компонент с помощью фильтров. Нажмите на название, чтобы открыть карточку."
-                    : page === "import"
-                      ? "Загрузите PDF: поля заполнятся автоматически, затем проверьте результат."
-                      : page === "documents"
-                        ? "Исходные Datasheet и связанные с ними компоненты."
-                        : page === "compare"
-                          ? "Сравнивайте значения с учётом типа и условий измерения."
-                          : page === "help"
-                            ? "Короткие инструкции для повседневной работы."
-                            : page === "component"
-                              ? "Все характеристики и исходный документ компонента."
-                              : "Заполните сведения и сохраните компонент в библиотеку."}
-              </p>
+              {page === "overview" && (
+                <p>
+                  Откройте категорию для поиска или загрузите PDF, чтобы
+                  добавить компонент.
+                </p>
+              )}
+              {page === "import" && (
+                <p>
+                  Загрузите даташит, проверьте характеристики и сохраните
+                  карточку.
+                </p>
+              )}
             </div>
             {page === "catalog" && (
               <div className="actions">
@@ -1183,16 +1149,6 @@ function App() {
                   Загрузить PDF
                 </button>
               </div>
-            )}
-            {page === "overview" && (
-              <button
-                className="button primary"
-                disabled={loading}
-                onClick={() => chooseCategory("import")}
-              >
-                <Icon name="upload" size={17} />
-                Добавить компонент
-              </button>
             )}
           </div>
           {error && (
@@ -1241,160 +1197,38 @@ function App() {
             </div>
           )}
           {!loading && page === "overview" && (
-            <>
-              <section className="welcome-guide" aria-label="С чего начать">
-                <div className="welcome-copy">
-                  <span className="eyebrow">С ЧЕГО НАЧАТЬ</span>
-                  <h2>Ваша библиотека электронных компонентов</h2>
-                  <p>
-                    Храните характеристики и даташиты вместе. Для начала
-                    выберите подходящую категорию.
-                  </p>
-                </div>
-                <div className="welcome-paths">
-                  <button onClick={() => chooseCategory("import")}>
-                    <span className="tile-icon">
-                      <Icon name="upload" />
-                    </span>
-                    <span>
-                      <b>Добавить компонент</b>
-                      <small>
-                        Категория → загрузить PDF → проверить → сохранить
-                      </small>
-                    </span>
-                    <Icon name="arrow" />
-                  </button>
-                  <button onClick={() => chooseCategory("catalog")}>
-                    <span className="tile-icon">
-                      <Icon name="search" />
-                    </span>
-                    <span>
-                      <b>Найти компонент</b>
-                      <small>
-                        Категория → задать фильтры → открыть карточку
-                      </small>
-                    </span>
-                    <Icon name="arrow" />
-                  </button>
-                </div>
-              </section>
-              <div className="section-heading" id="category-choices">
-                <div>
-                  <h2>Выберите категорию компонента</h2>
-                  <p>
-                    {overviewAction === "import"
-                      ? "Нажмите на категорию — откроется загрузка PDF для этого типа компонента."
-                      : "Нажмите на категорию — откроется каталог с поиском и фильтрами."}
-                  </p>
-                </div>
-                <span className="muted">{categories.length} разделов</span>
-              </div>
-              <div className="category-grid">
-                {categories.map((c) => (
+            <div className="category-grid" aria-label="Категории компонентов">
+              {categories.map((c) => (
+                <article key={c.code} className="panel category-tile">
                   <button
-                    key={c.code}
-                    className="panel category-tile"
-                    onClick={() =>
-                      navigate("/" + overviewAction + "/" + c.code)
-                    }
+                    className="category-open"
+                    onClick={() => navigate("/catalog/" + c.code)}
+                    aria-label={"Открыть категорию «" + c.label + "»"}
                   >
                     <span className="tile-icon">
-                      <Icon name={c.icon} size={27} />
+                      <Icon name={c.icon} size={24} />
                     </span>
-                    <div>
-                      <h3>{c.label}</h3>
-                      <p>{c.group}</p>
-                      <small>
-                        {c.count} компонентов ·{" "}
-                        {overviewAction === "import"
-                          ? "Добавить из PDF"
-                          : "Открыть каталог"}
-                      </small>
-                    </div>
+                    <span>
+                      <h2>{c.label}</h2>
+                      <small>Компонентов: {c.count}</small>
+                    </span>
                     <Icon name="arrow" size={18} />
                   </button>
-                ))}
-              </div>
-              <div className="stats-grid">
-                {[
-                  ["Компоненты", stats.components, "chip"],
-                  ["Документы", stats.documents, "document"],
-                  ["Производители", stats.manufacturers, "box"],
-                  ["Значения параметров", stats.parameters, "settings"],
-                ].map(([label, value, icon]) => (
-                  <div className="panel stat" key={label}>
-                    <div className="stat-label">
-                      {label}
-                      <Icon name={String(icon)} />
-                    </div>
-                    <strong>{numberText(Number(value))}</strong>
-                    <small>В вашей библиотеке</small>
-                  </div>
-                ))}
-              </div>
-              <div className="overview-bottom">
-                <section className="panel">
-                  <div className="panel-heading">
-                    <h2>Компоненты библиотеки</h2>
-                    <span className="badge neutral">{allItems.length}</span>
-                  </div>
-                  {allItems.length ? (
-                    <ComponentTable rows={allItems.slice(0, 5)} compact />
-                  ) : (
-                    <div className="empty">
-                      <Icon name="chip" size={34} />
-                      <h3>Начните с первого компонента</h3>
-                      <p>Загрузите Datasheet или заполните карточку вручную.</p>
-                      <button
-                        className="button primary"
-                        onClick={() => chooseCategory("import")}
-                      >
-                        Загрузить PDF
-                        <Icon name="arrow" size={16} />
-                      </button>
-                    </div>
-                  )}
-                </section>
-                <section className="panel getting-started">
-                  <span className="eyebrow">РАБОТА С DATASHEET</span>
-                  <h2>От документа к карточке</h2>
-                  {[
-                    "Выберите категорию компонента",
-                    "Загрузите PDF со спецификацией",
-                    "Проверьте заполненные параметры",
-                    "Сохраните карточку в каталог",
-                  ].map((step, i) => (
-                    <div className="guide-step" key={step}>
-                      <span>{i + 1}</span>
-                      {step}
-                    </div>
-                  ))}
                   <button
-                    className="text-button"
-                    onClick={() => navigate("/help")}
+                    className="category-add"
+                    onClick={() => navigate("/import/" + c.code)}
+                    aria-label={"Загрузить PDF в категорию «" + c.label + "»"}
                   >
-                    Открыть справку
-                    <Icon name="arrow" size={16} />
+                    <Icon name="plus" size={16} />
+                    Загрузить PDF
                   </button>
-                </section>
-              </div>
-            </>
+                </article>
+              ))}
+            </div>
           )}
           {!loading && page === "catalog" && category && (
             <>
               <section className="panel search-panel">
-                <div className="search-section-heading">
-                  <span className="step-tag">
-                    <Icon name="search" size={18} />
-                  </span>
-                  <div>
-                    <h2>Найдите нужный компонент</h2>
-                    <p>
-                      Поиск по названию, производителю, корпусу и
-                      характеристикам.
-                    </p>
-                  </div>
-                </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1421,6 +1255,23 @@ function App() {
                     <button
                       className="button secondary"
                       type="button"
+                      aria-expanded={filtersOpen}
+                      aria-controls="catalog-filters"
+                      onClick={() => setFiltersOpen(!filtersOpen)}
+                    >
+                      <Icon name="settings" size={16} />
+                      Фильтры
+                      {(filters.length > 0 || manufacturer || packageName) && (
+                        <span className="badge neutral">
+                          {filters.length +
+                            Number(Boolean(manufacturer)) +
+                            Number(Boolean(packageName))}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      className="button secondary"
+                      type="button"
                       onClick={() => {
                         setQ("");
                         setManufacturer("");
@@ -1432,74 +1283,82 @@ function App() {
                       Сбросить
                     </button>
                   </div>
-                  <div className="basic-filters">
-                    <label>
-                      Производитель
-                      <input
-                        placeholder="Любой производитель"
-                        value={manufacturer}
-                        onChange={(e) => setManufacturer(e.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Корпус
-                      <input
-                        placeholder="Например, SOT-23"
-                        value={packageName}
-                        onChange={(e) => setPackageName(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div className="filters-heading">
-                    <div>
-                      <h3>Фильтры по характеристикам</h3>
-                      <p>
-                        {filters.length
-                          ? "Компонент должен соответствовать всем условиям одновременно."
-                          : "Добавьте условия, чтобы подобрать компонент по нужным значениям."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="button secondary"
-                      disabled={filters.length >= 20}
-                      onClick={() => setFilters([...filters, emptyFilter()])}
-                    >
-                      <Icon name="plus" size={16} />
-                      Добавить фильтр
-                    </button>
-                  </div>
-                  {filters.map((filter, index) => (
-                    <FilterRow
-                      key={filter.id}
-                      filter={filter}
-                      index={index}
-                      definitions={fieldsFor(categoryCode)}
-                      onChange={(updated) =>
-                        setFilters(
-                          filters.map((f) =>
-                            f.id === filter.id ? updated : f,
-                          ),
-                        )
-                      }
-                      onRemove={() =>
-                        setFilters(filters.filter((f) => f.id !== filter.id))
-                      }
-                    />
-                  ))}
-                  {filters.length > 0 && (
-                    <div className="filter-apply">
-                      <span className="muted">
-                        Условия: {filters.length} · десятичные числа: 0,5 или
-                        0.5
-                      </span>
-                      <button
-                        className="button primary"
-                        type="submit"
-                        disabled={searchLoading}
-                      >
-                        {searchLoading ? "Поиск…" : "Применить фильтры"}
-                      </button>
+                  {filtersOpen && (
+                    <div id="catalog-filters">
+                      <div className="basic-filters">
+                        <label>
+                          Производитель
+                          <input
+                            placeholder="Любой производитель"
+                            value={manufacturer}
+                            onChange={(e) => setManufacturer(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Корпус
+                          <input
+                            placeholder="Например, SOT-23"
+                            value={packageName}
+                            onChange={(e) => setPackageName(e.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="filters-heading">
+                        <div>
+                          <h3>Фильтры по характеристикам</h3>
+                          <p>
+                            {filters.length
+                              ? "Все условия выполняются одновременно."
+                              : "Выберите характеристики и задайте границы."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="button secondary"
+                          disabled={filters.length >= 20}
+                          onClick={() =>
+                            setFilters([...filters, emptyFilter()])
+                          }
+                        >
+                          <Icon name="plus" size={16} />
+                          Добавить фильтр
+                        </button>
+                      </div>
+                      {filters.map((filter, index) => (
+                        <FilterRow
+                          key={filter.id}
+                          filter={filter}
+                          index={index}
+                          definitions={fieldsFor(categoryCode)}
+                          onChange={(updated) =>
+                            setFilters(
+                              filters.map((f) =>
+                                f.id === filter.id ? updated : f,
+                              ),
+                            )
+                          }
+                          onRemove={() =>
+                            setFilters(
+                              filters.filter((f) => f.id !== filter.id),
+                            )
+                          }
+                        />
+                      ))}
+                      {filters.length > 0 && (
+                        <div className="filter-apply">
+                          <span className="muted">
+                            Условия: {filters.length} · десятичные числа: 0,5
+                            или 0.5
+                          </span>
+                          <button
+                            className="button primary"
+                            type="submit"
+                            disabled={searchLoading}
+                          >
+                            {searchLoading ? "Поиск…" : "Применить фильтры"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </form>
@@ -1518,20 +1377,11 @@ function App() {
                   <div>
                     <h2>Результаты поиска</h2>
                     <span className="muted" role="status">
-                      Найдено: {items.length} · откройте карточку нажатием на
-                      название
+                      Найдено: {items.length}
                     </span>
                   </div>
-                  <span className="badge blue">
-                    <Icon name={category.icon} size={15} />
-                    {category.label}
-                  </span>
                 </div>
                 <div className="table-controls">
-                  <span className="table-hint">
-                    Отметьте компоненты для сравнения. Широкую таблицу
-                    прокручивайте вправо.
-                  </span>
                   <ColumnPicker
                     definitions={fieldsFor(categoryCode)}
                     columns={visibleColumns}
@@ -1630,30 +1480,33 @@ function App() {
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Распознавание сканов
-                    <select
-                      aria-label="Распознавание сканов"
-                      disabled={busy}
-                      value={ocrMode}
-                      onChange={(e) => setOcrMode(e.target.value)}
-                    >
-                      <option value="auto">Автоматически</option>
-                      <option value="off">Только текст PDF</option>
-                      <option value="always">OCR всех страниц</option>
-                    </select>
-                  </label>
-                  <div className="ocr-status">
-                    <span
-                      className={
-                        "status-dot " + (ocrAvailable ? "" : "warning-dot")
-                      }
-                    />
-                    {ocrAvailable
-                      ? "Распознавание сканов готово"
-                      : "OCR недоступен"}
-                    <small>Обычные PDF читаются напрямую</small>
-                  </div>
+                  <details className="ocr-options">
+                    <summary>Настройки распознавания</summary>
+                    <label>
+                      Распознавание сканов
+                      <select
+                        aria-label="Распознавание сканов"
+                        disabled={busy}
+                        value={ocrMode}
+                        onChange={(e) => setOcrMode(e.target.value)}
+                      >
+                        <option value="auto">Автоматически</option>
+                        <option value="off">Только текст PDF</option>
+                        <option value="always">OCR всех страниц</option>
+                      </select>
+                    </label>
+                    <div className="ocr-status">
+                      <span
+                        className={
+                          "status-dot " + (ocrAvailable ? "" : "warning-dot")
+                        }
+                      />
+                      {ocrAvailable
+                        ? "Распознавание сканов готово"
+                        : "OCR недоступен"}
+                      <small>Обычные PDF читаются напрямую</small>
+                    </div>
+                  </details>
                 </div>
                 <div
                   className={
@@ -1681,9 +1534,7 @@ function App() {
                     )}
                   </span>
                   <h2>
-                    {busy
-                      ? "Извлекаем характеристики…"
-                      : "Перетащите Datasheet сюда"}
+                    {busy ? "Извлекаем характеристики…" : "Перетащите PDF сюда"}
                   </h2>
                   <p>
                     {busy
@@ -1931,7 +1782,7 @@ function App() {
                 </label>
                 <button
                   className="button primary"
-                  onClick={() => chooseCategory("import")}
+                  onClick={() => navigate("/overview")}
                 >
                   <Icon name="upload" size={17} />
                   Загрузить PDF
@@ -2148,89 +1999,6 @@ function App() {
               )}
             </>
           )}
-          {!loading && page === "help" && (
-            <>
-              <div className="help-grid">
-                {[
-                  [
-                    "upload",
-                    "Импорт из PDF",
-                    "Выберите категорию и загрузите PDF. Обычный текст читается напрямую; OCR включается для сканов. Для семейства выберите модель, сверьте значения и сохраните карточку.",
-                  ],
-                  [
-                    "warning",
-                    "Проверка типа компонента",
-                    "Даташит другого типа блокируется до сохранения. Предложенная кнопка повторяет загрузку в правильном разделе. Если тип не определён уверенно, проверьте категорию самостоятельно.",
-                  ],
-                  [
-                    "settings",
-                    "Характеристики и единицы",
-                    "Можно вводить 0,5 и 0.5. Смена единицы пересчитывает значение. Минимальное, типовое и максимальное — разные значения. Сохраняйте условия из спецификации.",
-                  ],
-                  [
-                    "search",
-                    "Поиск и сравнение",
-                    "Ищите по названию, производителю, корпусу и нескольким характеристикам одновременно. Нажмите «Добавить фильтр», задайте границы и примените фильтры. В «Столбцы таблицы» выберите нужные характеристики. Отметьте компоненты в таблице для сравнения. Учитывайте тип и условия измерения.",
-                  ],
-                  [
-                    "folder",
-                    "Сохранение и обновление",
-                    "Карточки и PDF находятся в папке data рядом с приложением. Перед обновлением закройте программу и скопируйте всю папку data в новую версию. Сохраните старую папку до проверки.",
-                  ],
-                  [
-                    "document",
-                    "Ограничения распознавания",
-                    "PDF: до 20 МБ и 200 страниц. OCR: до 10 страниц. Сложные таблицы, наклонённые и нечитаемые сканы могут не распознаться. Извлекаются поддерживаемые характеристики; все результаты требуют проверки.",
-                  ],
-                ].map(([icon, heading, text]) => (
-                  <article className="panel help-card" key={heading}>
-                    <span className="tile-icon">
-                      <Icon name={icon} size={24} />
-                    </span>
-                    <h2>{heading}</h2>
-                    <p>{text}</p>
-                  </article>
-                ))}
-              </div>
-              <section className="panel help-windows">
-                <div>
-                  <h2>Запуск на Windows</h2>
-                  <p>
-                    Установите Python 3.12 (64-bit), оставьте Python Launcher и
-                    дважды нажмите START_WINDOWS.bat. Дождитесь установки
-                    зависимостей. Оставьте чёрное окно открытым; Ctrl+C
-                    завершает приложение.
-                  </p>
-                </div>
-                <a
-                  className="button secondary"
-                  href="https://www.python.org/downloads/release/python-31210/"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Python 3.12 ↗
-                </a>
-              </section>
-              <section className="panel help-windows">
-                <div>
-                  <h2>Техническое описание проекта</h2>
-                  <p>
-                    Архитектура, схема базы, путь данных от PDF до карточки, API
-                    и сценарий демонстрации. Копия входит в архив:
-                    docs/TECHNICAL_GUIDE.md.
-                  </p>
-                </div>
-                <a
-                  className="button secondary"
-                  href="https://github.com/maksimilli/airtmn/blob/main/docs/TECHNICAL_GUIDE.md"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Читать описание ↗
-                </a>
-              </section>
-            </>
-          )}
           {!loading &&
             (![
               "overview",
@@ -2241,7 +2009,6 @@ function App() {
               "edit",
               "documents",
               "compare",
-              "help",
             ].includes(page) ||
               (page === "catalog" && !category)) && (
               <div className="panel empty">
@@ -2254,10 +2021,6 @@ function App() {
                 </button>
               </div>
             )}
-          <footer className="page-footer">
-            <span>Элемент · Каталог электронных компонентов</span>
-            <span>Сверяйте характеристики с документацией производителя</span>
-          </footer>
         </main>
       </div>
     </div>
