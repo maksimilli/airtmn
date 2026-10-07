@@ -1,13 +1,16 @@
 import hashlib
 import os
-import re
+import math
+from contextlib import contextmanager
+from typing import Literal
 import sqlite3
 from pathlib import Path
 
 import fitz
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from app.parameters import DEFINITIONS, normalize
 
 DATA = Path(os.getenv('CATALOG_DATA_DIR', 'data')).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
@@ -15,11 +18,16 @@ app = FastAPI(title='Каталог электронных компоненто�
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173', 'http://127.0.0.1:5173'], allow_methods=['*'], allow_headers=['*'])
 
 
+@contextmanager
 def db():
-    c = sqlite3.connect(DATA / 'catalog.sqlite3')
-    c.row_factory = sqlite3.Row
-    c.execute('PRAGMA foreign_keys=ON')
-    return c
+    connection = sqlite3.connect(DATA / 'catalog.sqlite3')
+    connection.row_factory = sqlite3.Row
+    connection.execute('PRAGMA foreign_keys=ON')
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 with db() as c:
@@ -33,6 +41,7 @@ with db() as c:
       id INTEGER PRIMARY KEY, component_id INTEGER REFERENCES components(id) ON DELETE CASCADE,
       code TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL,
       kind TEXT NOT NULL, conditions TEXT NOT NULL, page INTEGER, evidence TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS parameter_search ON parameters(component_id,code,kind,value);
     ''')
 
 
@@ -40,10 +49,17 @@ class Parameter(BaseModel):
     code: str
     value: float = Field(ge=0, allow_inf_nan=False)
     unit: str
-    kind: str = 'max'
+    kind: Literal['min', 'typ', 'max', 'unspecified'] = 'max'
     conditions: str = ''
     page: int | None = Field(default=None, ge=1)
     evidence: str = ''
+
+    @model_validator(mode='after')
+    def normalize_value(self):
+        self.value, self.unit = normalize(self.code, self.value, self.unit)
+        if not math.isfinite(self.value):
+            raise ValueError('Значение слишком большое')
+        return self
 
 
 class Component(BaseModel):
@@ -60,40 +76,106 @@ def health():
     return {'status': 'ok'}
 
 
+@app.get('/api/parameter-definitions')
+def parameter_definitions():
+    return [dict(code=code, **definition) for code, definition in DEFINITIONS.items()]
+
+
+def component_dict(connection, row):
+    item = dict(row)
+    item['parameters'] = [dict(p) for p in connection.execute(
+        'SELECT * FROM parameters WHERE component_id=? ORDER BY id', (row['id'],))]
+    return item
+
+
 @app.get('/api/components')
-def components(q: str = '', min_voltage: float | None = None, min_current: float | None = None):
-    sql = 'SELECT * FROM components WHERE name LIKE ?'
-    args = ['%' + q + '%']
+def components(q: str = '', min_voltage: float | None = None, min_current: float | None = None,
+               manufacturer: str = '', package: str = '', parameter_code: str | None = None,
+               parameter_kind: Literal['min', 'typ', 'max', 'unspecified'] = 'max',
+               parameter_min: float | None = None, parameter_max: float | None = None,
+               parameter_unit: str | None = None, conditions: str = ''):
+    sql = 'SELECT * FROM components WHERE name LIKE ? AND manufacturer LIKE ? AND package LIKE ?'
+    args = ['%' + q + '%', '%' + manufacturer + '%', '%' + package + '%']
     for code, threshold in [('VRRM', min_voltage), ('IF_AV', min_current)]:
         if threshold is not None:
-            sql += ' AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=? AND p.unit=? AND p.value>=?)'
-            args.extend([code, 'V' if code == 'VRRM' else 'A', threshold])
+            if not math.isfinite(threshold) or threshold < 0:
+                raise HTTPException(422, 'Граница фильтра должна быть конечным неотрицательным числом')
+            sql += " AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=? AND p.kind='max' AND p.value>=?)"
+            args.extend([code, threshold])
+    if parameter_code:
+        definition = DEFINITIONS.get(parameter_code)
+        if not definition:
+            raise HTTPException(422, 'Неизвестная характеристика')
+        try:
+            normalize(parameter_code, 0, parameter_unit or definition['unit'])
+            lower = normalize(parameter_code, parameter_min, parameter_unit or definition['unit'])[0] if parameter_min is not None else None
+            upper = normalize(parameter_code, parameter_max, parameter_unit or definition['unit'])[0] if parameter_max is not None else None
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        if any(v is not None and (not math.isfinite(v) or v < 0) for v in [lower, upper]):
+            raise HTTPException(422, 'Граница фильтра должна быть конечным неотрицательным числом')
+        if lower is not None and upper is not None and lower > upper:
+            raise HTTPException(422, 'Значение «от» не должно превышать «до»')
+        clause = ' AND EXISTS(SELECT 1 FROM parameters p WHERE p.component_id=components.id AND p.code=? AND p.kind=?'
+        args.extend([parameter_code, parameter_kind])
+        if lower is not None:
+            clause += ' AND p.value>=?'
+            args.append(lower)
+        if upper is not None:
+            clause += ' AND p.value<=?'
+            args.append(upper)
+        if conditions:
+            clause += ' AND p.conditions LIKE ?'
+            args.append('%' + conditions + '%')
+        sql += clause + ')'
+    elif parameter_min is not None or parameter_max is not None or conditions:
+        raise HTTPException(422, 'Выберите характеристику для дополнительного фильтра')
     with db() as c:
-        result = []
-        for row in c.execute(sql + ' ORDER BY name', args):
-            item = dict(row)
-            item['parameters'] = [dict(p) for p in c.execute('SELECT * FROM parameters WHERE component_id=?', (row['id'],))]
-            result.append(item)
-        return result
+        return [component_dict(c, row) for row in c.execute(sql + ' ORDER BY name', args)]
+
+
+@app.get('/api/components/{component_id}')
+def get_component(component_id: int):
+    with db() as c:
+        row = c.execute('SELECT * FROM components WHERE id=?', (component_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, 'Компонент не найден')
+        return component_dict(c, row)
+
+
+def save_component(component: Component, component_id: int | None = None):
+    if not component.name.strip():
+        raise HTTPException(422, 'Обозначение не может быть пустым')
+    with db() as c:
+        if component_id is not None and not c.execute('SELECT 1 FROM components WHERE id=?', (component_id,)).fetchone():
+            raise HTTPException(404, 'Компонент не найден')
+        if component.document_id and not c.execute('SELECT 1 FROM documents WHERE id=?', (component.document_id,)).fetchone():
+            raise HTTPException(422, 'Документ не найден')
+        values = (component.name.strip(), component.manufacturer.strip(), component.package.strip(),
+                  component.description, component.document_id)
+        try:
+            if component_id is None:
+                cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id) VALUES(?,?,?,?,?)', values)
+                component_id = cursor.lastrowid
+            else:
+                c.execute('UPDATE components SET name=?,manufacturer=?,package=?,description=?,document_id=? WHERE id=?', (*values, component_id))
+                c.execute('DELETE FROM parameters WHERE component_id=?', (component_id,))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, 'Компонент этого производителя уже существует')
+        for p in component.parameters:
+            c.execute('INSERT INTO parameters(component_id,code,value,unit,kind,conditions,page,evidence) VALUES(?,?,?,?,?,?,?,?)',
+                      (component_id, p.code, p.value, p.unit, p.kind, p.conditions, p.page, p.evidence))
+        return {'id': component_id}
 
 
 @app.post('/api/components', status_code=201)
 def create(component: Component):
-    if not component.name.strip():
-        raise HTTPException(422, 'Обозначение не может быть пустым')
-    with db() as c:
-        if component.document_id and not c.execute('SELECT 1 FROM documents WHERE id=?', (component.document_id,)).fetchone():
-            raise HTTPException(422, 'Документ не найден')
-        for p in component.parameters:
-            if p.code not in {'VRRM', 'IF_AV'} or p.unit != ('V' if p.code == 'VRRM' else 'A') or p.kind != 'max':
-                raise HTTPException(422, 'Поддерживаются предельные VRRM (V) и IF_AV (A)')
-        try:
-            cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id) VALUES(?,?,?,?,?)', (component.name.strip(), component.manufacturer.strip(), component.package, component.description, component.document_id))
-        except sqlite3.IntegrityError:
-            raise HTTPException(409, 'Компонент этого производителя уже существует')
-        for p in component.parameters:
-            c.execute('INSERT INTO parameters(component_id,code,value,unit,kind,conditions,page,evidence) VALUES(?,?,?,?,?,?,?,?)', (cursor.lastrowid,p.code,p.value,p.unit,p.kind,p.conditions,p.page,p.evidence))
-        return {'id': cursor.lastrowid}
+    return save_component(component)
+
+
+@app.put('/api/components/{component_id}')
+def update(component_id: int, component: Component):
+    return save_component(component, component_id)
 
 
 @app.get('/api/documents/{document_id}')
@@ -129,7 +211,7 @@ async def import_pdf(file: UploadFile = File(...)):
     if not any(t.strip() for t in pages):
         warnings.append('Текст не найден: сканированные PDF требуют OCR, который пока не подключён.')
     if not extracted['parameters']:
-        warnings.append('VRRM и IF(AV) не удалось извлечь. Заполните их вручную.')
+        warnings.append('Характеристики не удалось извлечь. Заполните их вручную.')
     digest = hashlib.sha256(content).hexdigest()
     with db() as c:
         duplicate = c.execute('SELECT 1 FROM documents WHERE id=?', (digest,)).fetchone() is not None

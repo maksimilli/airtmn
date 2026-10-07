@@ -10,3 +10,9 @@ test('reject empty, negative, malformed and nonfinite input',()=>{
  for (const text of ['', ' ', '-1', '1,2.3', 'NaN', 'Infinity', 'abc', '9'.repeat(400)])
   assert.throws(()=>parseDecimal(text));
 });
+test('numeric unit conversions retain tiny values',()=>{
+ assert.equal(parseDecimal(15e-12),15e-12);
+ assert.equal(parseDecimal(.5),.5);
+ assert.throws(()=>parseDecimal(-1));
+ assert.throws(()=>parseDecimal(Infinity));
+});
