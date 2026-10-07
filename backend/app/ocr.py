@@ -25,7 +25,18 @@ def engine():
     return RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
 
 
+def broken_units(page):
+    text=page.get_text()
+    if any(ord(c)<32 and c not in '\n\r\t' for c in text) and ('ELECTRICAL CHARACTERISTICS' in text and ('Part No.' in text or 'UNIT' in text)):
+        return True
+    raw=page.get_text('rawdict')
+    missing=[c['bbox'] for b in raw['blocks'] for l in b.get('lines',[]) for span in l['spans'] for c in span['chars'] if c['c']=='\x00']
+    return any(0 <= w[0]-r[2] < 4 and abs((w[1]+w[3]-r[1]-r[3])/2)<7
+               for r in missing for w in page.get_text('words') if w[4] in {'A','F','H','s','V','Ω'})
+
+
 def needs_ocr(page):
+    if broken_units(page): return True
     words = page.get_text('words')
     if len(words) >= 80:
         return False
@@ -114,7 +125,7 @@ def prepare_document(original, mode='auto', protected_pages=None):
     attempted = 0
     try:
         for index, page in enumerate(original):
-            wanted = mode != 'off' and (mode == 'always' or (index+1 not in (protected_pages or set()) and needs_ocr(page)))
+            wanted = mode != 'off' and (mode == 'always' or ((index+1 not in (protected_pages or set()) or broken_units(page)) and needs_ocr(page)))
             if wanted:
                 if attempted >= MAX_OCR_PAGES:
                     warnings.append(f'Страница {index+1}: лимит OCR — {MAX_OCR_PAGES} страниц за импорт. Разделите большой скан на части.')

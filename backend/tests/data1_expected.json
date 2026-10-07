@@ -1,0 +1,829 @@
+{
+  "note": "Контрольные значения вручную сверены с исходными PDF; проверяется выбранная модель и поддерживаемые поля, а не полное распознавание каждой строки.",
+  "cases": [
+    {
+      "filename": "FCI_SFW8R-2STAE1LF_SFW24R-1STAE1LF.pdf",
+      "sha256": "e45827266fc6447861d553c86b122d096f50b2042f51ceef37eac8789661db87",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 1,
+          "kind": null
+        },
+        {
+          "code": "PINS",
+          "value": 4,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Murata_NTEσσσσ.pdf",
+      "sha256": "2b786036f478201b42a1eb5de5b50591a62a2e9f2de126ffad66c113dcfa1ea9",
+      "category": "power",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "VOUT",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "IOUT",
+          "value": 0.303,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Murata_ö¿½∞Γαδ ßÑα¿¿ BLM18.pdf",
+      "sha256": "67d15b8b03d0b0e923d189748f82bc16c093e31c847983cae599e16b629edc42",
+      "category": "inductor",
+      "expected": [
+        {
+          "code": "Z",
+          "value": 120,
+          "kind": "typ"
+        },
+        {
+          "code": "IRATED",
+          "value": 0.2,
+          "kind": null
+        },
+        {
+          "code": "DCR",
+          "value": 0.25,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "NXP_74LVC138A.pdf",
+      "sha256": "c52e9020102a790baba1105f4027c986df56583ff19829362d7268462be27265",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.65,
+          "kind": "min"
+        }
+      ]
+    },
+    {
+      "filename": "NXP_BAT54S_.pdf",
+      "sha256": "b2ce971d538f040e1bafbacb33da3a0ee15d225f4723009da11ae63beaeaf1f0",
+      "category": "diode",
+      "expected": [
+        {
+          "code": "VR",
+          "value": 30,
+          "kind": "max"
+        },
+        {
+          "code": "IF",
+          "value": 0.2,
+          "kind": "max"
+        },
+        {
+          "code": "VF",
+          "value": 0.4,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "NXP_BAT54XY.pdf",
+      "sha256": "be4115f3bf599be12401b3701095dc18b3f9d7840ab731f8e285bdff76479ede",
+      "category": "diode",
+      "expected": [
+        {
+          "code": "VR",
+          "value": 30,
+          "kind": "max"
+        },
+        {
+          "code": "IF",
+          "value": 0.2,
+          "kind": "max"
+        },
+        {
+          "code": "VF",
+          "value": 0.4,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_221VxxF23.pdf",
+      "sha256": "487d59e608ccc3620038d7d618d80b07a7b4f3d4c125a250ff06b19f6daedba9",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_221YnnF22.pdf",
+      "sha256": "fdb8fd65ba0ad79aeb3c13e53298581d8ff37029834afd0628703d61d213695b",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_222SnnM11.pdf",
+      "sha256": "4c72da3e1344cf164449248af3696e8129c0dafe73c3d017e68e3b05d89f2749",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_222VnnM21.pdf",
+      "sha256": "6bfa88adefc4bebedfc8683f24d0396bddffb010eceb88f06b3fe143c8c837fe",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_222YnnM12.pdf",
+      "sha256": "48950421834fc3dfe08ef54a8c5dc8171cef545d4d4410b20e4eaacaeb242b3d",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Nicomatic_222YnnM12H.pdf",
+      "sha256": "a571a4db3b4feac5690beb5af3ef8fdcc33137e381e8738919c9473456705fd1",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PITCH",
+          "value": 2,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "On_Semiconductor_nc7sz332p6x.PDF",
+      "sha256": "ad1f34bee11528507144cc70661ac474d6ab3520c951f96fedfcc072cc81d85f",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.65,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Panasonic_TPE.pdf",
+      "sha256": "ca8cb1628029f32a5c3d35c606938bab1c292f5988ba38cbfdad30a2dda9f457",
+      "category": "capacitor",
+      "expected": [
+        {
+          "code": "VRATED",
+          "value": 10,
+          "kind": null
+        },
+        {
+          "code": "C",
+          "value": 4.7e-05,
+          "kind": null
+        },
+        {
+          "code": "ESR",
+          "value": 0.035,
+          "kind": "max"
+        },
+        {
+          "code": "IR",
+          "value": 4.7e-05,
+          "kind": "max"
+        },
+        {
+          "code": "IRIPPLE",
+          "value": 1.4,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Para Light_L-C150xx_170_191_192.pdf",
+      "sha256": "137d27b9c8c3173133e0adcd48f2e2531670c712a5f3f873d00ab21c2244ec1f",
+      "category": "diode",
+      "expected": [
+        {
+          "code": "VF",
+          "value": 2.1,
+          "kind": "typ"
+        },
+        {
+          "code": "VF",
+          "value": 2.6,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Pulse Electronic_hx5014nl.pdf",
+      "sha256": "05debb34faf68f12fa3c246a9d717d0fa87e6ecf9e631419423e27ce13f77289",
+      "category": "other",
+      "expected": [
+        {
+          "code": "L",
+          "value": 0.00035,
+          "kind": "min"
+        },
+        {
+          "code": "DCR",
+          "value": 0.65,
+          "kind": "max"
+        },
+        {
+          "code": "TURN_RATIO",
+          "value": 1,
+          "kind": null
+        },
+        {
+          "code": "VISOL",
+          "value": 1500,
+          "kind": "min"
+        }
+      ]
+    },
+    {
+      "filename": "ST-Microelectronics_1.5ke.pdf",
+      "sha256": "366bd18bf5ac08d1b02bec8ab39b7a44606d13a60d6d9d36a2871c01d0751279",
+      "category": "diode",
+      "expected": [
+        {
+          "code": "VR",
+          "value": 5.8,
+          "kind": "max"
+        },
+        {
+          "code": "VCL",
+          "value": 10.5,
+          "kind": "max"
+        },
+        {
+          "code": "IPP",
+          "value": 143,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "ST-Microelectronics_L3GD20H.pdf",
+      "sha256": "3952c0538260ef18c0bd767282781738fef0cd05aaf64236fb4eef607cf79748",
+      "category": "other",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 2.2,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 3.6,
+          "kind": "max"
+        },
+        {
+          "code": "ICC",
+          "value": 0.005,
+          "kind": "typ"
+        }
+      ]
+    },
+    {
+      "filename": "ST-Microelectronics_ST8R00WPUR.pdf",
+      "sha256": "9b3ec45a1bcb3109cf32e5458b9c7941725dc8a91258dae305ffa9c6176f1b9f",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 4,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 6,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Samtec_CLE-107-01-G-DV.pdf",
+      "sha256": "e3b9b345e02e5f76cdd8956fd635da53f19a97580e28c72810ad6fa9e14c07de",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "IRATED",
+          "value": 0.75,
+          "kind": null
+        },
+        {
+          "code": "CONTACT_R",
+          "value": 0.015,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Silicon Laboratories_Si8422BB-D-IS.pdf",
+      "sha256": "9dcfba0c73e6c9ad3a71c19d9b11f32bf390e6a026da6efffa5ab4b194c3c593",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "UVLO",
+          "value": 2.3,
+          "kind": "typ"
+        },
+        {
+          "code": "VHYST",
+          "value": 0.075,
+          "kind": "typ"
+        }
+      ]
+    },
+    {
+      "filename": "Silicon Laboratories_Si8661.pdf",
+      "sha256": "03cf43f68a51dde837ec21781566a54f16275ac6474db81973d4d3e2e3ddb7cc",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 2.5,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "TDK_ACH32C-103-T.pdf",
+      "sha256": "8dcf528262371c8b5de95d09b12df7d806872cf13c69517e1ef6f378add4078e",
+      "category": "inductor",
+      "expected": [
+        {
+          "code": "VRATED",
+          "value": 50,
+          "kind": null
+        },
+        {
+          "code": "IRATED",
+          "value": 6,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "TE Connectivity_5173279-3.pdf",
+      "sha256": "f5d850bbfc2592169aa36d73bca284e70a841a566ec8d3b185a12981617238fb",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PINS",
+          "value": 50,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "TE Connectivity_5173280-3.pdf",
+      "sha256": "3eb2b18c84a62e48156058c08d1dd2df29befe5a5ceaff445fc45639a274a882",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "PINS",
+          "value": 50,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "TE Connectivity_MCX ELBOW PCB SOCKET 50 OHMS.pdf",
+      "sha256": "b9207a523a85d34e9937b73e99415c090ff864e350563cc7ad86a0cd798739ad",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "Z",
+          "value": 50,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "TE Connectivity_MCX RF 1-1337585-0.pdf",
+      "sha256": "fbbaf7e0b054bf9d41ec99fb5cfd434cd4fcbe6f89fe77907d9671f09c077598",
+      "category": "connector",
+      "expected": [
+        {
+          "code": "Z",
+          "value": 50,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_LMZ23603TZ.pdf",
+      "sha256": "5f6ccfb6fce4963a7d053f1ae60fab7aec216053d12b89b524c5e7c7cf43f849",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 6,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 36,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_LP2985.pdf",
+      "sha256": "1e3ea0a939baee16c1f7519d1b6d1aac456f355e40ec0587a552e294902e7e1a",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VOUT",
+          "value": 2.5,
+          "kind": null
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_OPA1632.pdf",
+      "sha256": "173fb955f8651ac1ddf7bfaa83c3250bfa80625085480574506abc69dfedc62d",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 5,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 30,
+          "kind": "max"
+        },
+        {
+          "code": "SR",
+          "value": 50,
+          "kind": "typ"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_SN65HVD251.pdf",
+      "sha256": "42048936ec9cfe1e9424cbbe50c330e683d33b9733ed3bc2f032edfa1ccd8042",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 4.5,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_SN65HVD3083E.pdf",
+      "sha256": "16d621a3854c3cceef8f1fc3e0daf45912e19dae4768e9ef53d2b1f0871f3b0e",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 4.5,
+          "kind": "min"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_SN74LVC2G04.pdf",
+      "sha256": "52c95417e0a1f501f5171c7db9a063f981396c3ddb1f370b52a8275314af7a14",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.65,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        },
+        {
+          "code": "ICC",
+          "value": 1e-05,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_sn65hvd233.pdf",
+      "sha256": "16782cf1bd402a9bb8557883abadc2393ad1702f8c2ab1402f2efe9f12501b32",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "ICC",
+          "value": 0.0006,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_sn74lvc1g08.pdf",
+      "sha256": "2531a8781d2960cc8d317e2aaa82ea1cb8a6ed130e3108f4af5b0e742728dd34",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.65,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_sn74lvc1t45.pdf",
+      "sha256": "a8a904169fa1f0a9a24da1b63bb1beec436063dde282dccf216a9800d9fd7121",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_sn74lvc3g07.pdf",
+      "sha256": "4eb61d8017b8d1fbedbc5380b2b5590a9df8b94ee1ea2ff2d680782c8dab54e5",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.65,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tms320f28335.pdf",
+      "sha256": "98b51847d275ca913d2397ae24b487ac7a2a66c54c7e4c6a0ac9905098aa5f62",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 3.465,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tps3828-33.pdf",
+      "sha256": "559fdcd50006b0d61cf7eb8242d0a2c4cb578bc9bde99f940cce5b1d14c78308",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.1,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tps386000.pdf",
+      "sha256": "2d37d1bfee5252951d18be6e56b370ab49645c15703a02a799a9bd44c338cf93",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 1.8,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 6.5,
+          "kind": "max"
+        },
+        {
+          "code": "ICC",
+          "value": 1.1e-05,
+          "kind": "typ"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tps51100.pdf",
+      "sha256": "aa06334c40385ffe989320c5c513d3409b40f5bd105a0aa910fbfa7cefae31b1",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 4.75,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 5.25,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tps62000-008.pdf",
+      "sha256": "e66b4e228b81086c3609b7e42308347431deeb11b8c2fdf3ced0ce0663701a7c",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VCC",
+          "value": 2,
+          "kind": "min"
+        },
+        {
+          "code": "VCC",
+          "value": 5.5,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Texas Instruments_tps7a7200.pdf",
+      "sha256": "2abd7dc41faf36174a68f6eb4252e8c009a5e22c9c31362b7b4df2b29d71ef98",
+      "category": "ic",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 1.425,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 6.5,
+          "kind": "max"
+        },
+        {
+          "code": "IGND",
+          "value": 0.0026,
+          "kind": "typ"
+        }
+      ]
+    },
+    {
+      "filename": "Traco Electronic AG_TEN8.pdf",
+      "sha256": "070f9f753aac41502d6e7914a0aefed9e4ea9537723d0ac30def4cf4876e89cc",
+      "category": "power",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 9,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 18,
+          "kind": "max"
+        },
+        {
+          "code": "VOUT",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "IOUT",
+          "value": 2,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Traco Electronic AG_tck-050.pdf",
+      "sha256": "f83365aa71dc24b9386fc916654bb27df8076ab925186bddbff6640b1268bd97",
+      "category": "inductor",
+      "expected": [
+        {
+          "code": "L",
+          "value": 0.000325,
+          "kind": null
+        },
+        {
+          "code": "DCR",
+          "value": 0.035,
+          "kind": "max"
+        },
+        {
+          "code": "IRATED",
+          "value": 3.3,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Traco Electronic AG_tme.pdf",
+      "sha256": "7f4a280a9dea5d637e7280d33632c4fe65c0350e0b92b8ee5a4f7f483b2fb3a9",
+      "category": "power",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "VOUT",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "IOUT",
+          "value": 0.26,
+          "kind": "max"
+        }
+      ]
+    },
+    {
+      "filename": "Traco Electronic AG_tmr3.pdf",
+      "sha256": "1f0024bfcbc0e7c26c9e5711672a21e7e9271e26c681550b7170cb79e12b76d8",
+      "category": "power",
+      "expected": [
+        {
+          "code": "VIN",
+          "value": 4.5,
+          "kind": "min"
+        },
+        {
+          "code": "VIN",
+          "value": 9,
+          "kind": "max"
+        },
+        {
+          "code": "VOUT",
+          "value": 3.3,
+          "kind": null
+        },
+        {
+          "code": "IOUT",
+          "value": 0.7,
+          "kind": "max"
+        }
+      ]
+    }
+  ]
+}

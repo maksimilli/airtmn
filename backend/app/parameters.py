@@ -52,10 +52,28 @@ DEFINITIONS.update({
     'POUT': definition('Выходная мощность', 'W', {'W':1,'mW':.001}),
     'EFF': definition('КПД', '%'),
 })
+DEFINITIONS.update({
+    'VR': definition('Непрерывное обратное напряжение', 'V', VOLTAGE),
+    'IF': definition('Непрерывный прямой ток', 'A', CURRENT),
+    'IFRM': definition('Повторяющийся пиковый прямой ток', 'A', CURRENT),
+    'VBR': definition('Напряжение пробоя', 'V', VOLTAGE),
+    'VCL': definition('Напряжение ограничения', 'V', VOLTAGE),
+    'IPP': definition('Пиковый импульсный ток', 'A', CURRENT),
+    'PITCH': definition('Шаг контактов', 'mm', {'mm':1, 'inch':25.4}),
+    'Z': definition('Импеданс', 'Ω', RESISTANCE),
+    'IRIPPLE': definition('Допустимый ток пульсаций', 'A', CURRENT),
+    'GBW': definition('Полоса усиления', 'Hz', FREQUENCY, 'MHz'),
+    'UVLO': definition('Порог блокировки при пониженном питании', 'V', VOLTAGE),
+    'VHYST': definition('Гистерезис напряжения', 'V', VOLTAGE),
+    'TURN_RATIO': definition('Коэффициент трансформации', '1'),
+    'VISOL': definition('Испытательное напряжение изоляции', 'V', VOLTAGE),
+    'IGND': definition('Ток вывода земли', 'A', CURRENT, 'mA'),
+    'SR': definition('Скорость нарастания', 'V/µs'),
+})
 KINDS = {'min', 'typ', 'max', 'unspecified'}
 RATING_CODES = {'VRRM', 'VRMS', 'VDC', 'IF_AV', 'IFSM', 'PD', 'VDS', 'ID', 'VGS', 'VCEO', 'VCBO', 'VEBO', 'IC', 'VRATED', 'IRATED', 'ISAT', 'VIN', 'VCC'}
 ALIASES = {'IF(AV)': 'IF_AV', 'P_TOT': 'PD', 'PTOT': 'PD', 'P_D':'PD', 'RDS(ON)':'RDS_ON',
-           'VGS(TH)':'VGS_TH','VCE(SAT)':'VCE_SAT','V(BR)CEO':'VCEO','V(BR)DS':'VDS', 'H_FE':'HFE'}
+           'VGS(TH)':'VGS_TH','VCE(SAT)':'VCE_SAT','V(BR)CEO':'VCEO','V(BR)DS':'VDS', 'H_FE':'HFE', 'VDD':'VCC', 'VCCA':'VCC', 'VCCB':'VCC', 'IDD':'ICC', 'CD':'CJ', 'CT':'CJ', 'VC':'VCL', 'IPPM':'IPP', 'IDCMAX':'IRATED', 'IDC':'IRATED', 'VVCC':'VCC', 'IVCC':'ICC', 'VDDUV+':'UVLO', 'VDDHYS':'VHYST', 'VHYS':'VHYST', 'VDD1':'VCC', 'VDD2':'VCC', 'I(GND)':'IGND', 'IQ':'ICC'}
 
 
 def symbol_code(symbol):

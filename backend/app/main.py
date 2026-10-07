@@ -314,7 +314,7 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
     from app.ocr import prepare_document
     from app.classification import detect_category
     def check_category(pages):
-        detected = detect_category(pages)
+        detected = detect_category(pages, filename=file.filename or '')
         if detected and category != 'other' and detected['category'] != category:
             raise HTTPException(422, dict(code='category_mismatch', message=f"В документе распознан другой тип компонента: {detected['label']}. Выберите соответствующий раздел или другой PDF.",
                                         expected_category=category, detected_category=detected['category'], detected_label=detected['label'], evidence=detected['evidence']))
@@ -322,11 +322,11 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
     page_count = len(pdf)
     with pdf:
         check_category([page.get_text() for page in pdf])
-        original = extract(pdf, category=category)
+        original = extract(pdf, category=category, filename=file.filename or '')
         # Preserve the established digital-PDF path, including vector grids.
         protected = {p['page'] for v in original['variants'] for p in v['parameters']} | {p['page'] for p in original['parameters']}
         with prepare_document(pdf, ocr_mode, protected_pages=protected) as (prepared, records, ocr_info, ocr_warnings):
-            extracted = extract(prepared, records, category=category) if records else original
+            extracted = extract(prepared, records, category=category, filename=file.filename or '') if records else original
     pages = extracted.pop('pages')
     detected = check_category(pages)
     warnings = extracted.pop('extraction_warnings') + ocr_warnings
@@ -336,7 +336,7 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
         warnings.append('OCR выполнен для страниц: ' + ', '.join(map(str, ocr_info['pages'])) + '. Проверьте по оригиналу модель, единицы и десятичные точки.')
     warnings.append('Проверьте обозначение компонента, предельные значения и условия измерения перед сохранением.')
     if len(extracted['variants']) > 1:
-        warnings.append('Документ содержит несколько моделей: выберите нужную модель. Напряжение зависит от модели.')
+        warnings.append('Документ содержит несколько моделей: выберите нужную модель. Характеристики зависят от выбранной модели.')
     if not any(t.strip() for t in pages):
         warnings.append('Текст не найден. Включите OCR и проверьте читаемость скана; пустые страницы не содержат данных.')
     if not extracted['parameters']:
