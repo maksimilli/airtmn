@@ -1,0 +1,66 @@
+name: airtmn
+services:
+  app:
+    build: .
+    image: airtmn:${CATALOG_VERSION:-latest}
+    restart: unless-stopped
+    init: true
+    environment:
+      CATALOG_SERVER_MODE: '1'
+      CATALOG_COOKIE_SECURE: '1'
+      CATALOG_PUBLIC_ORIGIN: https://${CATALOG_DOMAIN:?Run python3 deploy/configure.py first}
+      CATALOG_ADMIN_USERNAME: ${CATALOG_ADMIN_USERNAME:-admin}
+      CATALOG_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    secrets:
+      - admin_password
+    volumes:
+      - catalog_data:/data
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    mem_limit: 2g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      CATALOG_DOMAIN: ${CATALOG_DOMAIN:?Run python3 deploy/configure.py first}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - backend
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+secrets:
+  admin_password:
+    file: ./deploy/secrets/admin_password
+volumes:
+  catalog_data:
+  caddy_data:
+  caddy_config:
+networks:
+  backend:
+    internal: true
+  edge:

@@ -4,9 +4,11 @@ import { parseDecimal } from "./decimal";
 import { emptyFilter, readColumns, serializeFilters } from "./catalog";
 import type { Filter } from "./catalog";
 import { ColumnPicker, FilterRow } from "./CatalogControls";
+import { LoginPanel, UsersPanel } from "./AuthPanels";
 import { Icon } from "./icons";
 import { ApiError, blank, kinds, numberText, request, symbol } from "./model";
 import type {
+  Access,
   Category,
   Component,
   Definition,
@@ -41,6 +43,8 @@ function SourceBadge({ p }: { p: Param }) {
 }
 
 function App() {
+  const [access, setAccess] = useState<Access | null>(null);
+  const canEdit = Boolean(access?.can_edit);
   const [route, setRoute] = useState(routeNow),
     [categories, setCategories] = useState<Category[]>([]),
     [definitions, setDefinitions] = useState<Definition[]>([]);
@@ -180,20 +184,23 @@ function App() {
     window.scrollTo({ top: 0 });
   }
   async function refresh() {
-    const [cats, defs, comps, docs, counts, status] = await Promise.all([
-      request("/api/categories"),
-      request("/api/parameter-definitions?category=other"),
-      request("/api/components"),
-      request("/api/documents"),
-      request("/api/stats"),
-      request("/api/ocr/status"),
-    ]);
+    const [cats, defs, comps, docs, counts, status, session] =
+      await Promise.all([
+        request("/api/categories"),
+        request("/api/parameter-definitions?category=other"),
+        request("/api/components"),
+        request("/api/documents"),
+        request("/api/stats"),
+        request("/api/ocr/status"),
+        request("/api/auth/session"),
+      ]);
     setCategories(cats);
     setDefinitions(defs);
     setAllItems(comps);
     setDocuments(docs);
     setStats(counts);
     setOcrAvailable(status.available);
+    setAccess(session);
   }
   useEffect(() => {
     void refresh()
@@ -203,6 +210,28 @@ function App() {
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
   }, []);
+  useEffect(() => {
+    const expired = () => {
+      void request("/api/auth/session")
+        .then(setAccess)
+        .catch((e) => setError(errorText(e)));
+      setNotice("Сеанс закончился. Войдите снова для редактирования.");
+    };
+    window.addEventListener("catalog-session-expired", expired);
+    return () => window.removeEventListener("catalog-session-expired", expired);
+  }, []);
+  async function logout() {
+    if (dirty && !window.confirm("Есть несохранённые изменения. Выйти?"))
+      return;
+    try {
+      await request("/api/auth/logout", { method: "POST" });
+      setDirty(false);
+      await refresh();
+      navigate("/overview", true);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
   useEffect(() => {
     const prevent = (e: BeforeUnloadEvent) => {
       if (dirty) {
@@ -258,7 +287,7 @@ function App() {
       setDraft(null);
       setSelected(null);
     }
-    if (page === "new" && definitions.length) {
+    if (page === "new" && definitions.length && canEdit) {
       setDraft(blank(parts[2] || "diode"));
       setSelected(null);
       setVariants([]);
@@ -274,7 +303,10 @@ function App() {
       setPreview("");
       setFilename("");
     }
-    if ((page === "component" || page === "edit") && definitions.length) {
+    if (
+      (page === "component" || (page === "edit" && canEdit)) &&
+      definitions.length
+    ) {
       let active = true;
       setSelected(null);
       setDraft(null);
@@ -302,7 +334,7 @@ function App() {
         active = false;
       };
     }
-  }, [route, definitions.length]);
+  }, [route, definitions.length, canEdit]);
   function changeDraft(patch: Partial<Component>) {
     if (draft) {
       setDraft({ ...draft, ...patch });
@@ -496,7 +528,11 @@ function App() {
                   ? selected?.name
                   : page === "compare"
                     ? "Сравнение компонентов"
-                    : "Страница не найдена";
+                    : page === "login"
+                      ? "Вход"
+                      : page === "users"
+                        ? "Администраторы"
+                        : "Страница не найдена";
 
   function ComponentTable({
     rows,
@@ -1096,6 +1132,15 @@ function App() {
               <span className="nav-count">{compareIds.length}</span>
             )}
           </button>
+          {access?.can_manage_users && (
+            <button
+              className={"nav-link " + (page === "users" ? "active" : "")}
+              onClick={() => navigate("/users")}
+            >
+              <Icon name="settings" />
+              Администраторы
+            </button>
+          )}
         </nav>
       </aside>
       <div className="main-shell">
@@ -1112,6 +1157,28 @@ function App() {
               Библиотека <span>/</span> <b>{title || "Загрузка…"}</b>
             </span>
           </div>
+          {access?.mode === "server" && (
+            <div className="account-actions">
+              {access.user ? (
+                <>
+                  <span>{access.user.username}</span>
+                  <button
+                    className="button secondary"
+                    onClick={() => void logout()}
+                  >
+                    Выйти
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="button secondary"
+                  onClick={() => navigate("/login")}
+                >
+                  Войти
+                </button>
+              )}
+            </div>
+          )}
         </header>
         <main>
           <div className="page-heading">
@@ -1119,8 +1186,9 @@ function App() {
               <h1>{title || "Загрузка…"}</h1>
               {page === "overview" && (
                 <p>
-                  Откройте категорию для поиска или загрузите PDF, чтобы
-                  добавить компонент.
+                  {canEdit
+                    ? "Откройте категорию для поиска или загрузите PDF, чтобы добавить компонент."
+                    : "Выберите категорию и найдите нужный компонент."}
                 </p>
               )}
               {page === "import" && (
@@ -1130,7 +1198,7 @@ function App() {
                 </p>
               )}
             </div>
-            {page === "catalog" && (
+            {page === "catalog" && canEdit && (
               <div className="actions">
                 <button
                   className="button secondary"
@@ -1214,14 +1282,16 @@ function App() {
                     </span>
                     <Icon name="arrow" size={18} />
                   </button>
-                  <button
-                    className="category-add"
-                    onClick={() => navigate("/import/" + c.code)}
-                    aria-label={"Загрузить PDF в категорию «" + c.label + "»"}
-                  >
-                    <Icon name="plus" size={16} />
-                    Загрузить PDF
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="category-add"
+                      onClick={() => navigate("/import/" + c.code)}
+                      aria-label={"Загрузить PDF в категорию «" + c.label + "»"}
+                    >
+                      <Icon name="plus" size={16} />
+                      Загрузить PDF
+                    </button>
+                  )}
                 </article>
               ))}
             </div>
@@ -1406,24 +1476,27 @@ function App() {
                         : "В этом разделе пока нет компонентов"}
                     </h3>
                     <p>
-                      Измените поиск или добавьте первый компонент в этот
-                      раздел.
+                      {canEdit
+                        ? "Измените поиск или добавьте компонент."
+                        : "Измените условия поиска или выберите другую категорию."}
                     </p>
-                    <div className="actions">
-                      <button
-                        className="button secondary"
-                        onClick={() => navigate("/new/" + categoryCode)}
-                      >
-                        Добавить вручную
-                      </button>
-                      <button
-                        className="button primary"
-                        onClick={() => navigate("/import/" + categoryCode)}
-                      >
-                        <Icon name="upload" size={17} />
-                        Загрузить PDF
-                      </button>
-                    </div>
+                    {canEdit && (
+                      <div className="actions">
+                        <button
+                          className="button secondary"
+                          onClick={() => navigate("/new/" + categoryCode)}
+                        >
+                          Добавить вручную
+                        </button>
+                        <button
+                          className="button primary"
+                          onClick={() => navigate("/import/" + categoryCode)}
+                        >
+                          <Icon name="upload" size={17} />
+                          Загрузить PDF
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -1450,7 +1523,7 @@ function App() {
               )}
             </>
           )}
-          {!loading && page === "import" && (
+          {!loading && canEdit && page === "import" && (
             <>
               <div className="import-steps">
                 <span className="active">
@@ -1597,7 +1670,7 @@ function App() {
               {editor}
             </>
           )}
-          {!loading && (page === "new" || page === "edit") && editor}
+          {!loading && canEdit && (page === "new" || page === "edit") && editor}
           {!loading && page === "component" && selected && (
             <>
               <div className="detail-actions">
@@ -1608,24 +1681,30 @@ function App() {
                   <Icon name="back" size={17} />
                   Вернуться в раздел
                 </button>
-                <div className="actions">
-                  <button
-                    className="button secondary"
-                    disabled={busy}
-                    onClick={() => navigate("/edit/" + selected.id)}
-                  >
-                    <Icon name="edit" size={17} />
-                    Редактировать
-                  </button>
-                  <button
-                    className="icon-button danger"
-                    disabled={busy}
-                    aria-label="Удалить компонент"
-                    onClick={() => void remove(selected)}
-                  >
-                    <Icon name="trash" />
-                  </button>
-                </div>
+                {canEdit && (
+                  <div className="actions">
+                    {canEdit && (
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => navigate("/edit/" + selected.id)}
+                      >
+                        <Icon name="edit" size={17} />
+                        Редактировать
+                      </button>
+                    )}
+                    {access?.can_delete && (
+                      <button
+                        className="icon-button danger"
+                        disabled={busy}
+                        aria-label="Удалить компонент"
+                        onClick={() => void remove(selected)}
+                      >
+                        <Icon name="trash" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <section className="panel component-summary">
                 <span className="summary-icon">
@@ -1727,12 +1806,14 @@ function App() {
                 ) : (
                   <div className="empty small-empty">
                     <h3>Характеристики ещё не заполнены</h3>
-                    <button
-                      className="button secondary"
-                      onClick={() => navigate("/edit/" + selected.id)}
-                    >
-                      Добавить характеристики
-                    </button>
+                    {canEdit && (
+                      <button
+                        className="button secondary"
+                        onClick={() => navigate("/edit/" + selected.id)}
+                      >
+                        Добавить характеристики
+                      </button>
+                    )}
                   </div>
                 )}
               </section>
@@ -1758,12 +1839,14 @@ function App() {
                     <Icon name="arrow" size={16} />
                   </a>
                 ) : (
-                  <button
-                    className="button secondary"
-                    onClick={() => navigate("/import/" + selected.category)}
-                  >
-                    Импортировать PDF
-                  </button>
+                  canEdit && (
+                    <button
+                      className="button secondary"
+                      onClick={() => navigate("/import/" + selected.category)}
+                    >
+                      Импортировать PDF
+                    </button>
+                  )
                 )}
               </section>
             </>
@@ -1780,13 +1863,15 @@ function App() {
                     onChange={(e) => setDocumentSearch(e.target.value)}
                   />
                 </label>
-                <button
-                  className="button primary"
-                  onClick={() => navigate("/overview")}
-                >
-                  <Icon name="upload" size={17} />
-                  Загрузить PDF
-                </button>
+                {canEdit && (
+                  <button
+                    className="button primary"
+                    onClick={() => navigate("/overview")}
+                  >
+                    <Icon name="upload" size={17} />
+                    Загрузить PDF
+                  </button>
+                )}
               </section>
               <section className="panel">
                 <div className="panel-heading">
@@ -1999,6 +2084,31 @@ function App() {
               )}
             </>
           )}
+          {!loading && page === "login" && access?.mode === "server" && (
+            <LoginPanel
+              onDone={async () => {
+                await refresh();
+                navigate("/overview", true);
+              }}
+            />
+          )}
+          {!loading && page === "users" && access?.can_manage_users && (
+            <UsersPanel />
+          )}
+          {!loading &&
+            ((["import", "new", "edit"].includes(page) && !canEdit) ||
+              (page === "users" && !access?.can_manage_users)) && (
+              <div className="panel empty">
+                <h2>Доступ только для администратора</h2>
+                <p>Каталог доступен для просмотра без входа.</p>
+                <button
+                  className="button primary"
+                  onClick={() => navigate("/login")}
+                >
+                  Войти
+                </button>
+              </div>
+            )}
           {!loading &&
             (![
               "overview",
@@ -2009,6 +2119,8 @@ function App() {
               "edit",
               "documents",
               "compare",
+              "login",
+              "users",
             ].includes(page) ||
               (page === "catalog" && !category)) && (
               <div className="panel empty">

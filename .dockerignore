@@ -1,0 +1,14 @@
+.git
+.venv*
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+frontend/dist
+data
+backups
+deploy/secrets
+.env
+.env.*
+*.zip
+examples
+local-data

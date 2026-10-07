@@ -75,6 +75,16 @@ export const numberText = (value: number) =>
   new Intl.NumberFormat("ru-RU", { maximumSignificantDigits: 10 }).format(
     value,
   );
+export type Access = {
+  mode: "local" | "server";
+  user: { id: number; username: string } | null;
+  role: "visitor" | "viewer" | "admin";
+  can_edit: boolean;
+  can_delete: boolean;
+  can_manage_users: boolean;
+  csrf_token: string | null;
+};
+let csrfToken: string | null = null;
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -88,7 +98,15 @@ export class ApiError extends Error {
   }
 }
 export async function request(url: string, options?: RequestInit) {
-  const response = await fetch(url, options);
+  const headers = new Headers(options?.headers);
+  if (
+    csrfToken &&
+    url.startsWith("/api/") &&
+    options?.method &&
+    !["GET", "HEAD"].includes(options.method.toUpperCase())
+  )
+    headers.set("X-CSRF-Token", csrfToken);
+  const response = await fetch(url, { ...options, headers });
   if (response.status === 204) return null;
   let data;
   try {
@@ -97,6 +115,10 @@ export async function request(url: string, options?: RequestInit) {
     throw new ApiError(
       "Сервер вернул непонятный ответ. Перезапустите приложение.",
     );
+  }
+  if (response.status === 401 && csrfToken && url !== "/api/auth/login") {
+    csrfToken = null;
+    window.dispatchEvent(new Event("catalog-session-expired"));
   }
   if (!response.ok) {
     const d = data.detail;
@@ -109,5 +131,6 @@ export async function request(url: string, options?: RequestInit) {
       d,
     );
   }
+  if (url === "/api/auth/session") csrfToken = data.csrf_token;
   return data;
 }

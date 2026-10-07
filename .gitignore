@@ -8,3 +8,9 @@ data/
 .venv-windows/
 .venv-windows-312/
 :memory:.ses
+.env
+.env.*
+!.env.example
+deploy/secrets/
+backups/
+local-data/

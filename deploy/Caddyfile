@@ -1,0 +1,16 @@
+{$CATALOG_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 21MB
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Frame-Options SAMEORIGIN
+	}
+	reverse_proxy app:8000 {
+		transport http {
+			response_header_timeout 600s
+		}
+	}
+}

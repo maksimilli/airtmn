@@ -59,6 +59,10 @@ with db() as c:
             c.execute(f'ALTER TABLE documents ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
 
 
+from app.auth import install_auth
+install_auth(app, db)
+
+
 class Parameter(BaseModel):
     code: str
     value: float = Field(ge=0, allow_inf_nan=False)
