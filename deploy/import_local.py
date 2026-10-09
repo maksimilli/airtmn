@@ -1,6 +1,7 @@
 """Import a Windows data folder into an empty server volume, with validation."""
 import sys
 import tempfile
+import os
 from pathlib import Path
 from backup import create, restore
 
@@ -8,5 +9,5 @@ source, target = map(Path, sys.argv[1:])
 with tempfile.TemporaryDirectory() as directory:
     archive = Path(directory) / 'local.tar.gz'
     create(source, archive)
-    restore(target, archive)
+    restore(target, archive, os.getenv('DATABASE_URL', ''))
 print('Local catalog and PDFs imported')

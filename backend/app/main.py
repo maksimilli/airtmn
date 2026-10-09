@@ -2,9 +2,8 @@ import hashlib
 import os
 import math
 import json
-from contextlib import contextmanager
+import time
 from typing import Literal
-import sqlite3
 from pathlib import Path
 
 import fitz
@@ -13,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from app.parameters import DEFINITIONS, normalize
 from app.categories import CATEGORIES, category_codes
+from app.database import Database
+from sqlalchemy.exc import IntegrityError
 
 DATA = Path(os.getenv('CATALOG_DATA_DIR', 'data')).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
@@ -20,43 +21,8 @@ app = FastAPI(title='Каталог электронных компоненто�
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173', 'http://127.0.0.1:5173'], allow_methods=['*'], allow_headers=['*'])
 
 
-@contextmanager
-def db():
-    connection = sqlite3.connect(DATA / 'catalog.sqlite3')
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys=ON')
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
-
-
-with db() as c:
-    c.executescript('''
-    CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, filename TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS components(
-      id INTEGER PRIMARY KEY, name TEXT NOT NULL, manufacturer TEXT NOT NULL,
-      package TEXT NOT NULL, description TEXT NOT NULL, document_id TEXT REFERENCES documents(id),
-      UNIQUE(name, manufacturer));
-    CREATE TABLE IF NOT EXISTS parameters(
-      id INTEGER PRIMARY KEY, component_id INTEGER REFERENCES components(id) ON DELETE CASCADE,
-      code TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL,
-      kind TEXT NOT NULL, conditions TEXT NOT NULL, page INTEGER, evidence TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS parameter_search ON parameters(component_id,code,kind,value);
-    ''')
-    columns = {row['name'] for row in c.execute('PRAGMA table_info(parameters)')}
-    if 'source' not in columns:
-        c.execute("ALTER TABLE parameters ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
-        c.execute("UPDATE parameters SET source='text' WHERE evidence<>''")
-    if 'confidence' not in columns:
-        c.execute('ALTER TABLE parameters ADD COLUMN confidence REAL')
-    if 'category' not in {row['name'] for row in c.execute('PRAGMA table_info(components)')}:
-        c.execute("ALTER TABLE components ADD COLUMN category TEXT NOT NULL DEFAULT 'diode'")
-    document_columns = {row['name'] for row in c.execute('PRAGMA table_info(documents)')}
-    for column in ['pages', 'size']:
-        if column not in document_columns:
-            c.execute(f'ALTER TABLE documents ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
+db = Database(DATA, os.getenv('DATABASE_URL', ''), os.getenv('CATALOG_DATABASE_PASSWORD_FILE', ''))
+db.initialize()
 
 
 from app.auth import install_auth
@@ -104,7 +70,9 @@ class Component(BaseModel):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok'}
+    with db() as c:
+        c.execute('SELECT 1')
+    return {'status': 'ok', 'database': 'postgresql' if db.postgres else 'sqlite'}
 
 
 @app.get('/api/ocr/status')
@@ -160,7 +128,7 @@ def components(q: str = '', min_voltage: float | None = None, min_current: float
                parameter_min: float | None = None, parameter_max: float | None = None,
                parameter_unit: str | None = None, conditions: str = '', category: str | None = None,
                filters: str | None = None):
-    sql = 'SELECT * FROM components WHERE name LIKE ? AND manufacturer LIKE ? AND package LIKE ?'
+    sql = 'SELECT * FROM components WHERE LOWER(name) LIKE LOWER(?) AND LOWER(manufacturer) LIKE LOWER(?) AND LOWER(package) LIKE LOWER(?)'
     args = ['%' + q + '%', '%' + manufacturer + '%', '%' + package + '%']
     if category is not None:
         if category not in CATEGORIES:
@@ -217,7 +185,7 @@ def components(q: str = '', min_voltage: float | None = None, min_current: float
             clause += ' AND p.value<=?'
             args.append(upper)
         if item.conditions:
-            clause += ' AND p.conditions LIKE ?'
+            clause += ' AND LOWER(p.conditions) LIKE LOWER(?)'
             args.append('%' + item.conditions + '%')
         sql += clause + ')'
     with db() as c:
@@ -245,12 +213,12 @@ def save_component(component: Component, component_id: int | None = None):
                   component.description, component.document_id, component.category)
         try:
             if component_id is None:
-                cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id,category) VALUES(?,?,?,?,?,?)', values)
-                component_id = cursor.lastrowid
+                cursor = c.execute('INSERT INTO components(name,manufacturer,package,description,document_id,category) VALUES(?,?,?,?,?,?) RETURNING id', values)
+                component_id = cursor.fetchone()[0]
             else:
                 c.execute('UPDATE components SET name=?,manufacturer=?,package=?,description=?,document_id=?,category=? WHERE id=?', (*values, component_id))
                 c.execute('DELETE FROM parameters WHERE component_id=?', (component_id,))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             raise HTTPException(409, 'Компонент этого производителя уже существует')
         for p in component.parameters:
             c.execute('INSERT INTO parameters(component_id,code,value,unit,kind,conditions,page,evidence,source,confidence) VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -278,29 +246,28 @@ def delete_component(component_id: int):
 @app.get('/api/documents')
 def documents():
     with db() as c:
-        return [dict(row) for row in c.execute('''SELECT d.*, COUNT(c.id) AS components_count
+        return [dict(row) for row in c.execute('''SELECT d.id,d.filename,d.pages,d.size, COUNT(c.id) AS components_count
             FROM documents d LEFT JOIN components c ON c.document_id=d.id
-            GROUP BY d.id ORDER BY d.rowid DESC''')]
+            GROUP BY d.id,d.filename,d.pages,d.size,d.created_at ORDER BY d.created_at DESC,d.id''')]
 
 
 @app.get('/api/documents/{document_id}')
 def document(document_id: str):
-    from fastapi.responses import FileResponse
-    with db() as c:
-        row = c.execute('SELECT * FROM documents WHERE id=?', (document_id,)).fetchone()
-    if not row:
+    from fastapi.responses import Response
+    content = db.document_content(document_id)
+    if content is None:
         raise HTTPException(404, 'Документ не найден')
-    return FileResponse(DATA / (document_id + '.pdf'), media_type='application/pdf')
+    return Response(content, media_type='application/pdf')
 
 
 @app.get('/api/documents/{document_id}/pages/{page_number}')
 def document_page(document_id: str, page_number: int):
     from fastapi.responses import Response
-    with db() as c:
-        if not c.execute('SELECT 1 FROM documents WHERE id=?',(document_id,)).fetchone():
-            raise HTTPException(404,'Документ не найден')
+    content = db.document_content(document_id)
+    if content is None:
+        raise HTTPException(404,'Документ не найден')
     try:
-        with fitz.open(DATA/(document_id+'.pdf')) as pdf:
+        with fitz.open(stream=content,filetype='pdf') as pdf:
             if page_number<1 or page_number>len(pdf):
                 raise HTTPException(404,'Страница не найдена')
             page=pdf[page_number-1]
@@ -359,9 +326,11 @@ def import_pdf(file: UploadFile = File(...), ocr_mode: Literal['auto', 'always',
     digest = hashlib.sha256(content).hexdigest()
     with db() as c:
         duplicate = c.execute('SELECT 1 FROM documents WHERE id=?', (digest,)).fetchone() is not None
-        c.execute('INSERT OR IGNORE INTO documents(id,filename,pages,size) VALUES(?,?,?,?)', (digest, Path(file.filename or 'datasheet.pdf').name, page_count, len(content)))
+        c.execute('INSERT INTO documents(id,filename,pages,size,content,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING',
+            (digest, Path(file.filename or 'datasheet.pdf').name, page_count, len(content), content if db.postgres else None, int(time.time())))
         c.execute('UPDATE documents SET pages=?,size=? WHERE id=?', (page_count,len(content),digest))
-    (DATA / (digest + '.pdf')).write_bytes(content)
+        if not db.postgres:
+            (DATA / (digest + '.pdf')).write_bytes(content)
     return dict(document_id=digest, duplicate=duplicate, ocr=ocr_info, category=category, detected_category=detected, filename=Path(file.filename or 'datasheet.pdf').name,
                 page_count=page_count, **extracted, warnings=warnings, text_preview='\n'.join(pages)[:12000])
 

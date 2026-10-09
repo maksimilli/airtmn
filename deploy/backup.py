@@ -7,13 +7,29 @@ import re
 import sqlite3
 import tarfile
 import tempfile
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 
 ALLOWED = re.compile(r'(catalog\.sqlite3|[0-9a-f]{64}\.pdf)\Z')
 
 
-def create(data: Path, output: Path):
+def create(data: Path, output: Path, database_url: str = ''):
+    if database_url:
+        from app.database import Database
+        from app.transfer import snapshot_postgres
+        source = Database(data, database_url, os.getenv('CATALOG_DATABASE_PASSWORD_FILE', ''))
+        try:
+            if not source.postgres:
+                raise ValueError('Remote backups require a PostgreSQL URL')
+            with tempfile.TemporaryDirectory() as directory:
+                snapshot = Path(directory)
+                snapshot_postgres(source, snapshot)
+                return create(snapshot, output)
+        finally:
+            source.engine.dispose()
     if output.exists():
         raise ValueError('Backup already exists; choose a new filename')
     database = data / 'catalog.sqlite3'
@@ -47,7 +63,21 @@ def create(data: Path, output: Path):
     return len(files)
 
 
-def restore(data: Path, archive_path: Path):
+def restore(data: Path, archive_path: Path, database_url: str = ''):
+    if database_url:
+        from app.database import Database
+        from app.transfer import copy_sqlite
+        target = Database(data, database_url, os.getenv('CATALOG_DATABASE_PASSWORD_FILE', ''))
+        try:
+            if not target.postgres:
+                raise ValueError('Remote restores require a PostgreSQL URL')
+            with tempfile.TemporaryDirectory() as directory:
+                snapshot = Path(directory)
+                count = restore(snapshot, archive_path)
+                copy_sqlite(snapshot, target)
+                return count
+        finally:
+            target.engine.dispose()
     data.mkdir(parents=True, exist_ok=True)
     if any(data.iterdir()):
         raise ValueError('Restore requires an empty data directory; existing data will not be overwritten')
@@ -93,5 +123,5 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=Path, default=Path('/data'))
     parser.add_argument('--archive', type=Path, required=True)
     args = parser.parse_args()
-    count = globals()[args.action](args.data, args.archive)
+    count = globals()[args.action](args.data, args.archive, os.getenv('DATABASE_URL', ''))
     print(f'{args.action}: {count} files verified')

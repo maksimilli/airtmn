@@ -127,3 +127,32 @@ def test_password_file_bootstrap_and_missing_password_fail(tmp_path, monkeypatch
     module=importlib.import_module('app.main')
     with TestClient(module.app,base_url='https://testserver') as client:
         sign_in(client, password=bootstrap_password)
+
+
+def test_concurrent_admin_downgrades_keep_one_active_admin(server, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.database import Session
+    client, module = server
+    first_headers = sign_in(client)
+    first_id = client.get('/api/auth/session').json()['user']['id']
+    second_password = 'test-only-second-password'
+    second_id = client.post('/api/users', headers=first_headers, json={
+        'username': 'second', 'password': second_password, 'role': 'admin'}).json()['id']
+    second = TestClient(module.app, base_url='https://catalog.example')
+    second_headers = sign_in(second, 'second', second_password)
+    barrier = Barrier(2)
+    original = Session.lock_users
+
+    def concurrent_lock(session):
+        barrier.wait(timeout=10)
+        original(session)
+
+    monkeypatch.setattr(Session, 'lock_users', concurrent_lock)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(person.put, f'/api/users/{identity}', headers=headers,
+                                   json={'role': 'viewer', 'enabled': True})
+                   for person, identity, headers in [(client, first_id, first_headers), (second, second_id, second_headers)]]
+        assert sorted(future.result().status_code for future in futures) == [200, 409]
+    with module.db() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND enabled=1").fetchone()[0] == 1

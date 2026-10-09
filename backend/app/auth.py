@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 
 COOKIE = 'catalog_session'
 SESSION_SECONDS = 12 * 60 * 60
@@ -57,15 +58,8 @@ def install_auth(app, db):
     secure_cookie = os.getenv('CATALOG_COOKIE_SECURE', '1') == '1'
     origin = os.getenv('CATALOG_PUBLIC_ORIGIN', '').rstrip('/')
     with db() as c:
-        c.executescript('''
-          CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL, role TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
-          CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL);
-          CREATE TABLE IF NOT EXISTS login_attempts(ip TEXT PRIMARY KEY, attempts INTEGER NOT NULL,
-            started_at INTEGER NOT NULL);
-        ''')
+        if server:
+            c.lock_users()
         if server and not c.execute('SELECT 1 FROM users').fetchone():
             filename = os.getenv('CATALOG_ADMIN_PASSWORD_FILE')
             password = Path(filename).read_text(encoding='utf-8').rstrip('\r\n') if filename else os.getenv('CATALOG_ADMIN_PASSWORD', '')
@@ -136,7 +130,7 @@ def install_auth(app, db):
             with db() as c:
                 c.execute('DELETE FROM login_attempts WHERE started_at<=?', (now - 300,))
                 c.execute('''INSERT INTO login_attempts(ip,attempts,started_at) VALUES(?,1,?)
-                    ON CONFLICT(ip) DO UPDATE SET attempts=attempts+1''', (ip, now))
+                    ON CONFLICT(ip) DO UPDATE SET attempts=login_attempts.attempts+1''', (ip, now))
             raise HTTPException(401, 'Неверный логин или пароль')
         token = secrets.token_urlsafe(32)
         with db() as c:
@@ -178,20 +172,19 @@ def install_auth(app, db):
             username = clean_username(payload.username)
         except ValueError as error:
             raise HTTPException(422, str(error))
-        from sqlite3 import IntegrityError
         with db() as c:
             try:
-                result = c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',
+                result = c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?) RETURNING id',
                                    (username, password_hash(payload.password), payload.role))
             except IntegrityError:
                 raise HTTPException(409, 'Этот логин уже занят')
-            return {'id': result.lastrowid, 'username': username, 'role': payload.role, 'enabled': True}
+            return {'id': result.fetchone()[0], 'username': username, 'role': payload.role, 'enabled': True}
 
     @app.put('/api/users/{identity}')
     def update_user(identity: int, payload: UserUpdate, request: Request):
         require_admin(request)
         with db() as c:
-            c.execute('BEGIN IMMEDIATE')
+            c.lock_users()
             user = c.execute('SELECT * FROM users WHERE id=?', (identity,)).fetchone()
             if not user:
                 raise HTTPException(404, 'Пользователь не найден')
@@ -199,7 +192,7 @@ def install_auth(app, db):
                 count = c.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND enabled=1").fetchone()[0]
                 if count <= 1:
                     raise HTTPException(409, 'Нельзя отключить или понизить последнего администратора')
-            c.execute('UPDATE users SET role=?,enabled=? WHERE id=?', (payload.role, payload.enabled, identity))
+            c.execute('UPDATE users SET role=?,enabled=? WHERE id=?', (payload.role, int(payload.enabled), identity))
             if payload.password is not None:
                 c.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash(payload.password), identity))
             if payload.password is not None or not payload.enabled or payload.role != user['role']:

@@ -2,6 +2,7 @@
 import getpass
 import os
 import re
+import secrets
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -25,5 +26,10 @@ fd = os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
 with os.fdopen(fd, 'w', encoding='utf-8') as file:
     file.write(password + '\n')
 os.chmod(secret, 0o444)
+database_secret = folder / 'database_password'
+fd = os.open(database_secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+with os.fdopen(fd, 'w', encoding='utf-8') as file:
+    file.write(secrets.token_urlsafe(32) + '\n')
+os.chmod(database_secret, 0o444)
 (root / '.env').write_text(f'CATALOG_DOMAIN={domain}\nCATALOG_ADMIN_USERNAME={username}\n', encoding='utf-8')
 print('Configuration saved. Run: docker compose up -d --build')

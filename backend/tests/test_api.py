@@ -166,6 +166,8 @@ def test_units_and_kinds_validation(client):
 
 
 def test_startup_preserves_existing_database_and_files(tmp_path, monkeypatch):
+    # This test specifically exercises the existing Windows SQLite upgrade.
+    monkeypatch.delenv('DATABASE_URL', raising=False)
     import sqlite3
     with sqlite3.connect(tmp_path/'catalog.sqlite3') as connection:
         connection.executescript('''

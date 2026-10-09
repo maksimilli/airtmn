@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     init: true
     environment:
+      DATABASE_URL: postgresql://catalog@database:5432/catalog
+      CATALOG_DATABASE_PASSWORD_FILE: /run/secrets/database_password
       CATALOG_SERVER_MODE: '1'
       CATALOG_COOKIE_SECURE: '1'
       CATALOG_PUBLIC_ORIGIN: https://${CATALOG_DOMAIN:?Run python3 deploy/configure.py first}
@@ -13,6 +15,10 @@ services:
       CATALOG_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
     secrets:
       - admin_password
+      - database_password
+    depends_on:
+      database:
+        condition: service_healthy
     volumes:
       - catalog_data:/data
     networks:
@@ -53,13 +59,40 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+  database:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: catalog
+      POSTGRES_DB: catalog
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U catalog -d catalog']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
 secrets:
   admin_password:
     file: ./deploy/secrets/admin_password
+  database_password:
+    file: ./deploy/secrets/database_password
 volumes:
   catalog_data:
   caddy_data:
   caddy_config:
+  postgres_data:
 networks:
   backend:
     internal: true
